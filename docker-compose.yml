@@ -1,0 +1,45 @@
+
+services:
+  plinkoincineratormdb:
+    image: postgis/postgis:14-3.4-alpine
+    restart: always
+    container_name: plinkoincinerator-db
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: root
+      POSTGRES_DATABASE: plinkoincinerator
+    ports:
+      - "5489:5432"
+    expose:
+      - "5489"
+    volumes:
+      - plinkoincinerator-db-data:/var/lib/postgresql/data
+    networks:
+      - plinkoincinerator-network
+
+  plinko-app:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+      # target: production
+      tags:
+        - plinkoincinerator-app-prod:latest
+    container_name: plinkoincinerator-app
+    restart: always
+    networks:
+      - plinkoincinerator-network
+    ports:
+      - "3001:80"
+    expose:
+      - 3001
+    depends_on:
+      - plinkoincineratormdb
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  plinkoincinerator-network:
+    driver: "bridge"
+
+volumes:
+  plinkoincinerator-db-data:

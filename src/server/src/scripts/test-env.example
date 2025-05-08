@@ -1,0 +1,8 @@
+# Solana RPC URL
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+
+# Source wallet private key (must have SOL to fund test wallets)
+TEST_SOURCE_WALLET_PRIVATE_KEY=your_private_key_here
+
+# PLINC token address
+PLINC_TOKEN_ADDRESS=49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump 

@@ -1,0 +1,28 @@
+[submodule "flask/app/api/permissions"]
+    path = flask/app/api/permissions
+    branch = main
+    url = https://gitmodules:glpat-kXP7vjKhshaUZeU21sH7@gitlab.com/bitnata/backend/auth-submodule.git
+[submodule "flask/app/api/files"]
+    path = flask/app/api/files
+    branch = main
+    url = https://gitmodules:glpat-kXP7vjKhshaUZeU21sH7@gitlab.com/bitnata/backend/files-submodule.git
+[submodule "flask/app/utils"]
+    path = flask/app/utils
+    branch = main
+    url = https://gitmodules:glpat-kXP7vjKhshaUZeU21sH7@gitlab.com/bitnata/backend/utils-submodule.git
+[submodule "flask/app/api/history"]
+    path = flask/app/api/history
+    branch = odysseys_tune
+    url = https://gitmodules:glpat-kXP7vjKhshaUZeU21sH7@gitlab.com/bitnata/backend/audit-trail-submodule.git
+[submodule "flask/app/api/locations"]
+    path = flask/app/api/locations
+    branch = activities-module
+    url = https://gitmodules:glpat-kXP7vjKhshaUZeU21sH7@gitlab.com/bitnata/backend/location-submodule.git
+[submodule "flask/app/api/tags"]
+    path = flask/app/api/tags
+    branch = activities-module
+    url = https://gitmodules:glpat-kXP7vjKhshaUZeU21sH7@gitlab.com/bitnata/backend/tags-submodule.git
+[submodule "flask/adminPanel/src/generic"]
+	path = flask/adminPanel/src/generic
+    branch = main
+	url = https://gitmodules:glpat-kXP7vjKhshaUZeU21sH7@gitlab.com/bitnata/frontend/backoffice-submodule.git

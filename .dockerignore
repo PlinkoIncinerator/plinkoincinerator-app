@@ -1,0 +1,30 @@
+# Ignore Python cache files
+*.pyc
+__pycache__/
+
+# Ignore the virtual environment
+venv/
+
+# Ignore any local development files
+*.log
+
+# Ignore any generated files
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore any build files or directories
+*.egg-info/
+dist/
+build/
+
+# Other
+Dockerfile
+docker-compose.yml
+
+# Node.js and react
+**/node_modules
+**/.git
+**/dist
+**/build
+**/*.log

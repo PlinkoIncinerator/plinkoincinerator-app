@@ -1,0 +1,201 @@
+/* Flame Animation */
+.flame-animation {
+  position: relative;
+  overflow: hidden;
+}
+
+.flame-animation::before {
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 165, 0, 0) 0%,
+    rgba(255, 165, 0, 0.3) 50%,
+    rgba(255, 0, 0, 0.5) 100%
+  );
+  animation: flame 1.5s infinite alternate;
+  pointer-events: none;
+  z-index: 1;
+}
+
+@keyframes flame {
+  0% {
+    opacity: 0.5;
+    transform: scaleY(1) translateY(0);
+  }
+  100% {
+    opacity: 0.8;
+    transform: scaleY(1.2) translateY(-10px);
+  }
+}
+
+/* Glow Pulse Effect */
+.glow-pulse {
+  animation: glowPulse 2s infinite alternate;
+  box-shadow: 0 0 10px rgba(255, 165, 0, 0.5);
+  border-radius: 4px;
+}
+
+@keyframes glowPulse {
+  0% {
+    box-shadow: 0 0 10px rgba(255, 165, 0, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 20px rgba(255, 165, 0, 0.8), 0 0 30px rgba(255, 0, 0, 0.6);
+  }
+}
+
+/* Shine Border Effect */
+.shine-border {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 165, 0, 0.3);
+}
+
+.shine-border::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    to bottom right,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0.4) 50%,
+    rgba(255, 255, 255, 0) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transform: rotate(45deg);
+  animation: shine 3s infinite;
+  pointer-events: none;
+}
+
+@keyframes shine {
+  0% {
+    left: -100%;
+    top: -100%;
+  }
+  100% {
+    left: 100%;
+    top: 100%;
+  }
+}
+
+/* Token Burning Animation */
+.burn-animation {
+  position: relative;
+}
+
+.burn-animation::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    to top,
+    rgba(255, 0, 0, 0.6) 0%,
+    rgba(255, 165, 0, 0.8) 60%,
+    rgba(255, 255, 0, 0.4) 100%
+  );
+  opacity: 0;
+  transform: scaleY(0.1);
+  transform-origin: bottom;
+  animation: burn 2s ease-out forwards;
+  pointer-events: none;
+  z-index: 2;
+}
+
+@keyframes burn {
+  0% {
+    opacity: 0;
+    transform: scaleY(0.1);
+  }
+  40% {
+    opacity: 0.8;
+    transform: scaleY(0.8);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleY(1.2);
+  }
+}
+
+/* Degen Style Text Effect */
+.degen-text {
+  text-shadow: 0 0 10px rgba(255, 165, 0, 0.8), 0 0 20px rgba(255, 0, 0, 0.6);
+  font-weight: bold;
+  color: #ffd700;
+}
+
+/* Ash Effect for burned tokens */
+.ash-effect {
+  position: relative;
+  opacity: 0.6;
+  filter: grayscale(90%);
+  transition: all 0.5s ease;
+}
+
+.ash-effect::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(0, 0, 0, 0.1),
+    rgba(0, 0, 0, 0.1) 10px,
+    rgba(0, 0, 0, 0.2) 10px,
+    rgba(0, 0, 0, 0.2) 20px
+  );
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Money Counter Animation */
+@keyframes countUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.count-animation {
+  animation: countUp 0.3s ease-out forwards;
+}
+
+/* Sparkle effect for highlights */
+.sparkle {
+  position: relative;
+}
+
+.sparkle::after {
+  content: "✨";
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  font-size: 20px;
+  animation: sparkleAnim 2s infinite;
+}
+
+@keyframes sparkleAnim {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0.8) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2) rotate(20deg);
+  }
+} 
