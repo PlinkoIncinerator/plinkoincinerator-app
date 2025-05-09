@@ -1,7 +1,9 @@
 import { Connection, PublicKey, Transaction, SystemProgram, Keypair, ConnectionConfig, TransactionResponse, GetVersionedTransactionConfig, VersionedTransactionResponse } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import bs58 from 'bs58';
+import dotenv from 'dotenv';
 
+dotenv.config();
 // Constants
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 // Add fallback RPC endpoints
