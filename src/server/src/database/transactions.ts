@@ -1,4 +1,5 @@
 import pool from './db';
+import { ensureDatabaseExists } from './dbInitialization';
 
 interface DepositRecord {
   id?: number;
@@ -50,6 +51,7 @@ interface BuybackRecord {
  */
 export async function initializeDatabase() {
   try {
+    await ensureDatabaseExists();
     const client = await pool.connect();
     try {
       // Create the deposits table
