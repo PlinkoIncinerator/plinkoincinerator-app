@@ -6,9 +6,11 @@ import { isSolanaWallet } from '@dynamic-labs/solana';
 import { incinerateTokens, getTokenAccounts, batchGetTokenMetadata, FetchProgressCallback } from "../utils/incinerator";
 import { Config } from "../config/solana";
 import { PublicKey } from "@solana/web3.js";
-import TransactionHistory from './TransactionHistory';
+import TransactionHistorySection from './TransactionHistorySection';
 import { trackPlinkoEvent, ANALYTICS_EVENTS } from '../utils/analytics';
 import Image from "next/image";
+import IncineratorActions from './IncineratorActions';
+import TokenList from './TokenList';
 
 // Create a reusable component for the Solana logo
 const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
@@ -70,7 +72,6 @@ export default function PlinkoIncinerator() {
   } | null>(null);
   const [incinerationMode, setIncinerationMode] = useState<'withdraw' | 'gamble' | null>(null);
   const [incinerationOptionsVisible, setIncinerationOptionsVisible] = useState(false);
-  const [showTransactions, setShowTransactions] = useState(false);
 
   // Clear any existing error messages on component mount
   useEffect(() => {
@@ -621,175 +622,21 @@ export default function PlinkoIncinerator() {
     }
   };
 
-  // Direct withdrawal - user gets value after fee
-  const handleDirectWithdraw = async () => {
-    if (!lastTransactionInfo || !primaryWallet) return;
-    
-    try {
-      setLoading(true);
-      setLoadingMessage('Processing withdrawal...');
-      addDebugMessage(`Initiating direct withdrawal of ${lastTransactionInfo.userValue.toFixed(6)} SOL to wallet`);
-      
-      // Verify the transaction with the server
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-      const verifyResponse = await fetch(`${API_URL}/api/verify-transaction`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          walletAddress: primaryWallet.address,
-          signature: lastTransactionInfo.signature,
-          feeTransferSignature: lastTransactionInfo.feeTransferSignature,
-          directWithdraw: true
-        }),
-      });
-      
-      if (!verifyResponse.ok) {
-        throw new Error(`Server responded with status: ${verifyResponse.status}`);
-      }
-      
-      const verifyResult = await verifyResponse.json();
-      
-      if (verifyResult.status === 'success') {
-        addDebugMessage(`Transaction verified for direct withdrawal`);
-        
-        // Call the withdrawal endpoint
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-        const withdrawResponse = await fetch(`${API_URL}/api/withdraw`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            walletAddress: primaryWallet.address,
-            amount: lastTransactionInfo.userValue,
-            directWithdraw: true
-          }),
-        });
-        
-        const withdrawResult = await withdrawResponse.json();
-        
-        if (withdrawResult.status === 'success') {
-          addDebugMessage(`Withdrawal successful: ${withdrawResult.signature}`);
-          setLoadingMessage('SOL withdrawn to your wallet!');
-          setLastTransactionInfo(null);
-          setTimeout(() => setLoadingMessage(''), 2000);
-          setShowGameOptions(false);
-        } else {
-          addDebugMessage(`Withdrawal failed: ${withdrawResult.message}`);
-          setLoadingMessage(`Withdrawal failed: ${withdrawResult.message}`);
-          setTimeout(() => setLoadingMessage(''), 3000);
-        }
-      } else {
-        addDebugMessage(`Server verification failed: ${verifyResult.message}`);
-        setLoadingMessage(`Server verification failed: ${verifyResult.message}`);
-        setTimeout(() => setLoadingMessage(''), 3000);
-      }
-    } catch (error) {
-      addDebugMessage(`Error during direct withdrawal: ${error}`);
-      console.error('Error during direct withdrawal:', error);
-      setLoadingMessage(`Withdrawal failed: ${error instanceof Error ? error.message : String(error)}`);
-      setTimeout(() => setLoadingMessage(''), 3000);
-    } finally {
-      setLoading(false);
-    }
+  // Function to handle direct withdrawal using the new component
+  const handleDirectWithdrawAction = () => {
+    setIncinerationMode('withdraw');
+    handleIncinerate();
   };
   
-  // Gamble option - send full amount to server for gambling
-  const handleGambleOption = async () => {
-    if (!lastTransactionInfo || !primaryWallet) return;
-    
-    try {
-      setLoading(true);
-      setLoadingMessage('Setting up gambling...');
-      addDebugMessage(`Preparing to gamble with ${lastTransactionInfo.totalValue.toFixed(6)} SOL`);
-      
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-
-      // Verify the transaction with the server for gambling
-      const verifyResponse = await fetch(`${API_URL}/api/verify-transaction`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          walletAddress: primaryWallet.address,
-          signature: lastTransactionInfo.signature,
-          feeTransferSignature: lastTransactionInfo.feeTransferSignature,
-          forGambling: true
-        }),
-      });
-      
-      if (!verifyResponse.ok) {
-        throw new Error(`Server responded with status: ${verifyResponse.status}`);
-      }
-      
-      const verifyResult = await verifyResponse.json();
-      
-      if (verifyResult.status === 'success') {
-        addDebugMessage(`Transaction verified for gambling: ${verifyResult.amount} SOL added to gambling balance`);
-        setGameBalance(verifyResult.amount);
-        setLoadingMessage('Gambling balance ready!');
-        setLastTransactionInfo(null);
-        setTimeout(() => setLoadingMessage(''), 2000);
-      } else {
-        addDebugMessage(`Server verification failed: ${verifyResult.message}`);
-        setLoadingMessage(`Server verification failed: ${verifyResult.message}`);
-        setTimeout(() => setLoadingMessage(''), 3000);
-      }
-    } catch (error) {
-      addDebugMessage(`Error setting up gambling: ${error}`);
-      console.error('Error setting up gambling:', error);
-      setLoadingMessage(`Failed to set up gambling: ${error instanceof Error ? error.message : String(error)}`);
-      setTimeout(() => setLoadingMessage(''), 3000);
-    } finally {
-      setLoading(false);
-    }
+  // Function to handle gambling using the new component
+  const handleGambleAction = () => {
+    setIncinerationMode('gamble');
+    handleIncinerate();
   };
-
-  const handleWithdraw = async () => {
-    if (gameBalance <= 0 || !primaryWallet) return;
-    
-    try {
-      setLoading(true);
-      setLoadingMessage('Processing withdrawal...');
-      addDebugMessage(`Requesting withdrawal of ${gameBalance} SOL to wallet`);
-      const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-
-      // Call the server withdrawal endpoint
-      const withdrawResponse = await fetch(`${API_URL}/api/withdraw`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          walletAddress: primaryWallet.address,
-          amount: gameBalance,
-        }),
-      });
-      
-      const withdrawResult = await withdrawResponse.json();
-      
-      if (withdrawResult.status === 'success') {
-        addDebugMessage(`Withdrawal successful: ${withdrawResult.signature}`);
-        setLoadingMessage('SOL withdrawn to your wallet!');
-        setTimeout(() => setLoadingMessage(''), 2000);
-        setGameBalance(0);
-        setShowGameOptions(false);
-      } else {
-        addDebugMessage(`Withdrawal failed: ${withdrawResult.message}`);
-        setLoadingMessage(`Withdrawal failed: ${withdrawResult.message}`);
-        setTimeout(() => setLoadingMessage(''), 3000);
-      }
-    } catch (error) {
-      addDebugMessage(`Error during withdrawal: ${error}`);
-      console.error('Error during withdrawal:', error);
-      setLoadingMessage('Withdrawal failed. Please try again later.');
-      setTimeout(() => setLoadingMessage(''), 3000);
-    } finally {
-      setLoading(false);
-    }
+  
+  // Function to cancel incineration options
+  const handleCancelIncineration = () => {
+    setIncinerationOptionsVisible(false);
   };
 
   const refreshTokens = () => {
@@ -819,17 +666,18 @@ export default function PlinkoIncinerator() {
   const batchCount = needsBatching ? Math.ceil(selectedTokens.length / maxAccountsPerBatch) : 1;
   const firstBatchValue = Math.min(selectedTokens.length, maxAccountsPerBatch) * 0.00203928 * (1 - Config.FEE_PERCENTAGE);
 
-  // Highlight that the token card can be clicked to toggle selection
-  const TokenSelectionHint = () => (
-    <div className="mt-3 mb-2 p-2 bg-blue-900 bg-opacity-20 rounded-md text-xs text-blue-200 border border-blue-800">
-      <div className="flex items-start">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-blue-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0114 0z" />
-        </svg>
-        <span>Click on a token card or checkbox to select/deselect it for incineration</span>
-      </div>
-    </div>
-  );
+  // Listen for the custom close-token-list event from the TokenList component
+  useEffect(() => {
+    const handleCloseTokenList = () => {
+      setShowTokenList(false);
+    };
+    
+    window.addEventListener('close-token-list', handleCloseTokenList);
+    
+    return () => {
+      window.removeEventListener('close-token-list', handleCloseTokenList);
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -970,93 +818,17 @@ export default function PlinkoIncinerator() {
             </div>
             
             {incinerationOptionsVisible && (
-              <div className="mt-4 p-5 bg-gray-950 bg-opacity-95 rounded-lg border border-purple-900/50 shadow-xl">
-                <h3 className="text-xl font-bold text-white mb-6 text-center">Choose What To Do With Your SOL</h3>
-                
-                <div className="flex flex-col gap-4">
-                  <button
-                    onClick={() => {
-                      setIncinerationMode('withdraw');
-                      // Track button click
-                      trackPlinkoEvent('select_withdraw_option', {
-                        potential_value: potentialSol,
-                      });
-                      handleIncinerate();
-                    }}
-                    className="w-full p-4 bg-green-900/60 border-2 border-green-600/50 rounded-lg hover:bg-green-800/70 hover:border-green-500 transition-all"
-                  >
-                    <div className="text-center">
-                      <div className="text-xl font-bold text-white mb-2">WITHDRAW 💰</div>
-                      <div className="text-2xl font-bold text-green-400 mb-1 flex items-center justify-center gap-1">
-                        {potentialSol.toFixed(6)} <SolanaLogo width={20} height={18} />
-                      </div>
-                      <div className="text-sm text-gray-200">Straight to your wallet</div>
-                      {needsBatching && (
-                        <div className="text-xs text-yellow-300 mt-2 flex items-center justify-center gap-1">
-                          First batch: {firstBatchValue.toFixed(6)} <SolanaLogo width={14} height={12} />
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                  
-                  <div className="flex items-center justify-center">
-                    <div className="h-px bg-gray-800 flex-grow"></div>
-                    <span className="px-4 text-gray-400 font-medium">OR</span>
-                    <div className="h-px bg-gray-800 flex-grow"></div>
-                  </div>
-                  
-                  <button
-                    onClick={() => {
-                      setIncinerationMode('gamble');
-                      // Track button click
-                      trackPlinkoEvent('select_gamble_option', {
-                        potential_value: totalPotentialValue,
-                      });
-                      handleIncinerate();
-                    }}
-                    className="w-full p-4 bg-blue-900/60 border-2 border-blue-600/50 rounded-lg hover:bg-blue-800/70 hover:border-blue-500 transition-all"
-                  >
-                    <div className="text-center">
-                      <div className="text-xl font-bold text-white mb-2">YOLO IT 🔥</div>
-                      <div className="text-2xl font-bold text-blue-400 mb-1 flex items-center justify-center gap-1">
-                        {totalPotentialValue.toFixed(6)} <SolanaLogo width={20} height={18} />
-                      </div>
-                      <div className="text-sm text-gray-200">Try your luck with Plinko</div>
-                      {needsBatching && (
-                        <div className="text-xs text-yellow-300 mt-2 flex items-center justify-center gap-1">
-                          First batch: {Math.min(eligibleTokens.length, maxAccountsPerBatch) * 0.00203928} <SolanaLogo width={14} height={12} />
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                </div>
-
-                {needsBatching && (
-                  <div className="mt-4 p-3 bg-gray-900/80 rounded-md border border-yellow-700/50">
-                    <div className="flex items-start">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-yellow-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      <div>
-                        <p className="text-sm text-yellow-200 mb-1">Processing in Batches</p>
-                        <p className="text-xs text-gray-300">
-                          You have {eligibleTokens.length} accounts but only 15 can be processed per transaction.
-                          After the first batch completes, you can return to process the remaining {eligibleTokens.length - maxAccountsPerBatch} accounts.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="mt-6 text-center">
-                  <button 
-                    onClick={() => setIncinerationOptionsVisible(false)}
-                    className="text-sm text-gray-300 hover:text-white transition-colors px-4 py-2 rounded-md hover:bg-gray-800/50"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
+              <IncineratorActions
+                eligibleTokens={eligibleTokens.length}
+                selectedTokens={selectedTokens.length}
+                totalPotentialValue={totalPotentialValue}
+                potentialSol={potentialSol}
+                maxAccountsPerBatch={maxAccountsPerBatch}
+                needsBatching={needsBatching}
+                onWithdraw={handleDirectWithdrawAction}
+                onGamble={handleGambleAction}
+                onCancel={handleCancelIncineration}
+              />
             )}
             
             {eligibleTokens.length > 0 && (
@@ -1069,181 +841,14 @@ export default function PlinkoIncinerator() {
                 </button>
                 
                 {showTokenList && (
-                  <div className="mt-4 max-h-96 overflow-y-auto p-4 bg-gray-950 bg-opacity-95 rounded-lg border border-gray-800/50 shadow-xl">
-                    <div className="mb-3 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                      <h3 className="text-lg font-bold text-white">Eligible Tokens</h3>
-                      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                        <span className="bg-gray-900 rounded-full px-3 py-1 text-xs text-gray-200">
-                          {selectedTokens.length}/{eligibleTokens.length} selected
-                        </span>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => toggleAllTokens(true)}
-                            className="text-xs px-2 py-1 bg-purple-900/60 hover:bg-purple-800/70 border border-purple-600/50 rounded text-white transition-all"
-                          >
-                            Select All
-                          </button>
-                          <button
-                            onClick={() => toggleAllTokens(false)}
-                            className="text-xs px-2 py-1 bg-gray-900/60 hover:bg-gray-800/70 border border-gray-600/50 rounded text-white transition-all"
-                          >
-                            Deselect All
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="mb-4 p-3 bg-gray-900/80 rounded-md border border-blue-800/50">
-                      <div className="flex items-start">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-blue-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <div>
-                          <p className="text-blue-200 mb-1">Empty token accounts take up space in your wallet.</p>
-                          <p className="text-gray-300">Burn them to get {(0.00203928 * (1 - Config.FEE_PERCENTAGE)).toFixed(8)} SOL each (after {Config.FEE_PERCENTAGE * 100}% fee).</p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <TokenSelectionHint />
-                    
-                    {eligibleTokens.length > 5 && (
-                      <div className="mb-4">
-                        <div className="relative">
-                          <input
-                            type="text"
-                            value={tokenSearch}
-                            onChange={(e) => setTokenSearch(e.target.value)}
-                            placeholder="Search tokens..."
-                            className="w-full bg-gray-900 border border-gray-700 rounded-md py-2 pl-10 pr-4 text-sm focus:border-purple-500 focus:outline-none"
-                          />
-                          <svg 
-                            xmlns="http://www.w3.org/2000/svg" 
-                            className="h-5 w-5 absolute left-3 top-2.5 text-gray-400" 
-                            fill="none" 
-                            viewBox="0 0 24 24" 
-                            stroke="currentColor"
-                          >
-                            <path 
-                              strokeLinecap="round" 
-                              strokeLinejoin="round" 
-                              strokeWidth={2} 
-                              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" 
-                            />
-                          </svg>
-                          {tokenSearch && (
-                            <button 
-                              onClick={() => setTokenSearch('')}
-                              className="absolute right-3 top-2.5 text-gray-400 hover:text-white"
-                            >
-                              <svg 
-                                xmlns="http://www.w3.org/2000/svg" 
-                                className="h-5 w-5" 
-                                fill="none" 
-                                viewBox="0 0 24 24" 
-                                stroke="currentColor"
-                              >
-                                <path 
-                                  strokeLinecap="round" 
-                                  strokeLinejoin="round" 
-                                  strokeWidth={2} 
-                                  d="M6 18L18 6M6 6l12 12" 
-                                />
-                              </svg>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {eligibleTokens
-                        .filter(token => 
-                          tokenSearch === '' || 
-                          token.name?.toLowerCase().includes(tokenSearch.toLowerCase()) || 
-                          token.symbol?.toLowerCase().includes(tokenSearch.toLowerCase())
-                        )
-                        .map((token, index) => (
-                          <div 
-                            key={token.pubkey} 
-                            className={`bg-gray-900/60 rounded-lg p-3 border transition-all ${token.isSelected ? 'border-purple-500/50' : 'border-gray-700/50 hover:border-gray-500/50'}`}
-                          >
-                            <div className="flex items-center mb-2">
-                              <div 
-                                className="flex-shrink-0 w-6 h-6 mr-2"
-                                onClick={() => toggleTokenSelection(token.pubkey)}
-                              >
-                                <div className={`w-5 h-5 rounded border ${token.isSelected ? 'bg-purple-600/60 border-purple-400/50' : 'border-gray-500/50'} flex items-center justify-center cursor-pointer`}>
-                                  {token.isSelected && (
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex-shrink-0 w-8 h-8 mr-3 bg-gray-800 rounded-full flex items-center justify-center">
-                                {token.logoUrl ? (
-                                  <Image 
-                                    src={token.logoUrl} 
-                                    alt={token.symbol || "Token"} 
-                                    className="w-7 h-7 rounded-full"
-                                    width={28}
-                                    height={28}
-                                    onError={(e) => {
-                                      e.currentTarget.dataset.error = "true";
-                                      const nextSibling = e.currentTarget.nextSibling as HTMLElement;
-                                      if (nextSibling) nextSibling.style.display = 'block';
-                                    }}
-                                    style={{objectFit: "cover"}}
-                                  />
-                                ) : null}
-                                <span 
-                                  className="text-xs font-bold text-white" 
-                                  style={{display: token.logoUrl ? 'none' : 'block'}}
-                                >
-                                  {token.symbol?.substring(0, 2) || "??"}
-                                </span>
-                              </div>
-                              <div 
-                                className="cursor-pointer flex-grow"
-                                onClick={() => toggleTokenSelection(token.pubkey)}
-                              >
-                                <div className="font-medium text-white truncate max-w-[180px]" title={token.name}>
-                                  {token.name}
-                                </div>
-                                <div className="text-xs text-gray-300 flex items-center">
-                                  <span className="mr-1">{token.symbol}</span>
-                                  <span className="inline-flex items-center justify-center bg-purple-900/40 rounded-sm px-1">
-                                    <span className="mr-1 w-2 h-2 rounded-full bg-green-500"></span>
-                                    <span className="text-[10px]">Empty</span>
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-700/50">
-                              <div className="text-xs text-gray-400">Token account</div>
-                              <div className="text-right">
-                                <div className="text-sm font-bold text-green-400">0.00203928 SOL</div>
-                                <div className="text-[10px] text-gray-500 font-mono">
-                                  {token.pubkey.substring(0, 6)}...{token.pubkey.substring(token.pubkey.length - 4)}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                    
-                    {eligibleTokens.length > 6 && (
-                      <div className="mt-4 text-center">
-                        <button 
-                          onClick={() => setShowTokenList(false)} 
-                          className="text-xs text-gray-400 hover:text-white"
-                        >
-                          Close Token List
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <TokenList 
+                    eligibleTokens={eligibleTokens}
+                    selectedTokens={selectedTokens}
+                    tokenSearch={tokenSearch}
+                    onTokenSearchChange={setTokenSearch}
+                    onToggleTokenSelection={toggleTokenSelection}
+                    onToggleAllTokens={toggleAllTokens}
+                  />
                 )}
               </div>
             )}
@@ -1251,39 +856,9 @@ export default function PlinkoIncinerator() {
         )}
       </div>
       
-      {/* Add a toggle for transaction history */}
+      {/* Use the new TransactionHistorySection component */}
       {primaryWallet && (
-        <div className="flex justify-between items-center mb-4">
-          {!showTransactions ? (
-            <button
-              onClick={() => setShowTransactions(true)}
-              className="text-sm text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1.5 group"
-            >
-              <span>Show Transactions</span>
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 transform group-hover:translate-y-0.5 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M6 9l6 6 6-6"/>
-              </svg>
-            </button>
-          ) : (
-            <div className="flex justify-between items-center w-full">
-              <h2 className="text-xl font-bold text-white">Your Activity</h2>
-              <button
-                onClick={() => setShowTransactions(false)}
-                className="text-sm text-gray-400 hover:text-gray-300 transition-colors flex items-center gap-1.5 group"
-              >
-                <span>Hide</span>
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 transform group-hover:-translate-y-0.5 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M18 15l-6-6-6 6"/>
-                </svg>
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-      
-      {/* Transaction History Component */}
-      {primaryWallet && showTransactions && (
-        <TransactionHistory walletAddress={primaryWallet.address} />
+        <TransactionHistorySection walletAddress={primaryWallet.address} />
       )}
       
       {/* Debug Panel */}
