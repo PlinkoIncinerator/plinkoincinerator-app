@@ -39,7 +39,7 @@ export default function TermsAndConditions() {
           <div className="space-y-6 text-gray-300">
             <section>
               <h2 className="text-xl font-bold mb-3 text-pink-400">1. Introduction</h2>
-              <p>Welcome to PlinkoIncinerator. These Terms and Conditions govern your use of the PlinkoIncinerator website and decentralized application (collectively, the "Service"). By accessing or using the Service, you agree to be bound by these Terms and Conditions. If you disagree with any part of these terms, you may not access the Service.</p>
+              <p>Welcome to PlinkoIncinerator. These Terms and Conditions govern your use of the PlinkoIncinerator website and decentralized application (collectively, the &quot;Service&quot;). By accessing or using the Service, you agree to be bound by these Terms and Conditions. If you disagree with any part of these terms, you may not access the Service.</p>
             </section>
 
             <section>
@@ -154,7 +154,7 @@ export default function TermsAndConditions() {
 
             <section>
               <h2 className="text-xl font-bold mb-3 text-pink-400">12. Indemnification</h2>
-              <p>You agree to defend, indemnify, and hold harmless PlinkoIncinerator, its affiliates, licensors, and service providers, and their respective officers, directors, employees, contractors, agents, licensors, suppliers, successors, and assigns from and against any claims, liabilities, damages, judgments, awards, losses, costs, expenses, or fees (including reasonable attorneys' fees) arising out of or relating to your violation of these Terms or your use of the Service.</p>
+              <p>You agree to defend, indemnify, and hold harmless PlinkoIncinerator, its affiliates, licensors, and service providers, and their respective officers, directors, employees, contractors, agents, licensors, suppliers, successors, and assigns from and against any claims, liabilities, damages, judgments, awards, losses, costs, expenses, or fees (including reasonable attorneys&apos; fees) arising out of or relating to your violation of these Terms or your use of the Service.</p>
             </section>
 
             <section>

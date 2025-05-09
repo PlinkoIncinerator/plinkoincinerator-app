@@ -39,14 +39,14 @@ export default function PrivacyPolicy() {
           <div className="space-y-6 text-gray-300">
             <section>
               <h2 className="text-xl font-bold mb-3 text-pink-400">1. Introduction</h2>
-              <p>Welcome to PlinkoIncinerator ("we", "our", or "us"). We respect your privacy and are committed to protecting your personal data. This privacy policy will inform you about how we look after your personal data when you visit our website and tell you about your privacy rights and how the law protects you.</p>
+              <p>Welcome to PlinkoIncinerator (&quot;we&quot;, &quot;our&quot;, or &quot;us&quot;). We respect your privacy and are committed to protecting your personal data. This privacy policy will inform you about how we look after your personal data when you visit our website and tell you about your privacy rights and how the law protects you.</p>
               <p className="mt-2">This privacy policy applies to all users of PlinkoIncinerator, a decentralized application (dApp) built on the Solana blockchain.</p>
             </section>
 
             <section>
               <h2 className="text-xl font-bold mb-3 text-pink-400">2. Important Information</h2>
               <p><strong>Not Financial Advice:</strong> PlinkoIncinerator is not a financial advisor, investment advisor, or broker. The information provided on this website is for general informational and entertainment purposes only and does not constitute financial advice.</p>
-              <p className="mt-2"><strong>Age Restriction:</strong> PlinkoIncinerator's services are only available to individuals who are at least 18 years old or the legal age for gambling in their jurisdiction, whichever is higher. By using our services, you represent and warrant that you meet these age requirements.</p>
+              <p className="mt-2"><strong>Age Restriction:</strong> PlinkoIncinerator&apos;s services are only available to individuals who are at least 18 years old or the legal age for gambling in their jurisdiction, whichever is higher. By using our services, you represent and warrant that you meet these age requirements.</p>
               <p className="mt-2"><strong>Gambling Warning:</strong> Gambling involves risk and should be conducted responsibly. You should never gamble with funds that you cannot afford to lose.</p>
             </section>
 
@@ -108,7 +108,7 @@ export default function PrivacyPolicy() {
               <ul className="list-disc pl-5 mt-2 space-y-1">
                 <li>The right to access and receive a copy of your personal data</li>
                 <li>The right to rectification of inaccurate data</li>
-                <li>The right to erasure (the "right to be forgotten")</li>
+                <li>The right to erasure (the &quot;right to be forgotten&quot;)</li>
                 <li>The right to restrict processing</li>
                 <li>The right to data portability</li>
                 <li>The right to object to processing</li>
@@ -117,7 +117,7 @@ export default function PrivacyPolicy() {
 
             <section>
               <h2 className="text-xl font-bold mb-3 text-pink-400">10. Changes to the Privacy Policy</h2>
-              <p>We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the "Last Updated" date at the top of this Privacy Policy.</p>
+              <p>We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy on this page and updating the &quot;Last Updated&quot; date at the top of this Privacy Policy.</p>
             </section>
 
             <section>

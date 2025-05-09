@@ -51,7 +51,7 @@ function initializeFeeWalletKeypair(): Keypair | null {
     console.log(`- Public key: ${keypair.publicKey.toString()}`);
     
     return keypair;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to initialize fee wallet keypair:');
     console.error(`- Error message: ${error instanceof Error ? error.message : String(error)}`);
     console.error(`- Error stack: ${error instanceof Error ? error.stack : 'No stack trace'}`);
@@ -110,7 +110,7 @@ async function getTransactionWithFallbacks(
     };
     const tx = await connection.getTransaction(signature, versionedOptions);
     if (tx) return tx;
-  } catch (err) {
+  } catch (err: any) {
     console.error(`Primary RPC failed for signature ${signature}:`, err);
   }
   
@@ -130,7 +130,7 @@ async function getTransactionWithFallbacks(
         console.log(`Transaction found via fallback RPC ${i + 1}`);
         return tx;
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(`Fallback RPC ${i + 1} failed:`, err);
     }
   }
@@ -171,7 +171,7 @@ export async function verifyDeposit(
     const MAX_RETRIES = 5;
     const INITIAL_DELAY_MS = 1000; // 1 second initial delay
     let retryCount = 0;
-    let incinerationTx = null;
+    let incinerationTx: VersionedTransactionResponse | null = null;
 
     while (retryCount < MAX_RETRIES && !incinerationTx) {
       try {
@@ -210,7 +210,7 @@ export async function verifyDeposit(
           await new Promise(resolve => setTimeout(resolve, delay));
           retryCount++;
         }
-      } catch (fetchError) {
+      } catch (fetchError: any) {
         console.error(`Error fetching transaction (attempt ${retryCount + 1}):`, fetchError);
         
         // Exponential backoff before retrying
@@ -380,7 +380,7 @@ export async function verifyDeposit(
       
       // Use retry mechanism for fee transaction similar to incineration transaction
       console.log(`Starting verification for fee transaction: ${feeTransferSignature}`);
-      let feeTx = null;
+      let feeTx: VersionedTransactionResponse | null = null;
       retryCount = 0; // Reuse the counter from above
       
       while (retryCount < MAX_RETRIES && !feeTx) {
@@ -420,7 +420,7 @@ export async function verifyDeposit(
             await new Promise(resolve => setTimeout(resolve, delay));
             retryCount++;
           }
-        } catch (fetchError) {
+        } catch (fetchError: any) {
           console.error(`Error fetching fee transaction (attempt ${retryCount + 1}):`, fetchError);
           
           // Exponential backoff before retrying
@@ -539,7 +539,7 @@ export async function verifyDeposit(
         amount: userAmount
       };
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error verifying deposit:', error);
     return {
       success: false,
@@ -650,7 +650,7 @@ export async function processWithdrawal(
       const INITIAL_SEND_DELAY_MS = 500;
       let sendRetryCount = 0;
       let signature = '';
-      let sendError = null;
+      let sendError: any = null;
 
       while (sendRetryCount < MAX_SEND_RETRIES && !signature) {
         try {
@@ -665,7 +665,7 @@ export async function processWithdrawal(
     
           console.log(`Withdrawal transaction sent with signature: ${signature}`);
           break;
-        } catch (error) {
+        } catch (error: any) {
           sendError = error;
           console.error(`Error sending transaction (attempt ${sendRetryCount + 1}/${MAX_SEND_RETRIES}):`, error);
           
@@ -678,7 +678,7 @@ export async function processWithdrawal(
               const newBlockhash = await connection.getLatestBlockhash();
               transaction.recentBlockhash = newBlockhash.blockhash;
               console.log(`Updated transaction with new blockhash: ${newBlockhash.blockhash}`);
-            } catch (refreshError) {
+            } catch (refreshError: any) {
               console.error('Error refreshing blockhash:', refreshError);
             }
           }
@@ -722,7 +722,7 @@ export async function processWithdrawal(
         error: 'Fee wallet not configured'
       };
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error processing withdrawal:');
     console.error(`- Message: ${error instanceof Error ? error.message : String(error)}`);
     console.error(`- Stack: ${error instanceof Error ? error.stack : 'No stack trace'}`);

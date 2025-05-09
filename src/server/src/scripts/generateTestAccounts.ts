@@ -81,11 +81,24 @@ async function getJupiterQuote(
 }
 
 /**
+ * Type definition for transaction instruction objects
+ */
+type InstructionType = {
+  keys: Array<{
+    pubkey: PublicKey;
+    isSigner: boolean;
+    isWritable: boolean;
+  }>;
+  programId: PublicKey;
+  data: Buffer;
+};
+
+/**
  * Split transaction instructions to handle large transactions
  */
-function splitInstructions(instructions: any[]): any[][] {
+function splitInstructions(instructions: InstructionType[]): InstructionType[][] {
   // Split into very small chunks to handle large accounts
-  const chunks = [];
+  const chunks: InstructionType[][] = [];
   const chunkSize = 2; // Smaller chunk size to avoid transaction size limits
   
   for (let i = 0; i < instructions.length; i += chunkSize) {
@@ -228,7 +241,7 @@ async function executeSplitTransactions(
   console.log('Executing split transactions...');
   
   // Collect all instructions
-  const allInstructions = [];
+  const allInstructions: InstructionType[] = [];
   
   // Add compute budget instructions if present
   if (swapResponse.computeBudgetInstructions) {
@@ -363,7 +376,7 @@ async function executeVersionedTransaction(
   swapResponse: any
 ): Promise<string> {
   // Collect all instructions from the swap response
-  const instructions = [];
+  const instructions: (InstructionType | ReturnType<typeof ComputeBudgetProgram.setComputeUnitLimit> | ReturnType<typeof ComputeBudgetProgram.setComputeUnitPrice>)[] = [];
   
   // Track if we already have compute budget instructions
   const hasComputeBudgetInstructions = swapResponse.computeBudgetInstructions && 
@@ -508,7 +521,7 @@ async function executeSimpleTransaction(
     const programId = new PublicKey(swapInst.programId);
     const instructionData = Buffer.from(swapInst.data, 'base64');
     
-    transaction.add({
+    const instruction: InstructionType = {
       keys: swapInst.accounts.map((acc: any) => ({
         pubkey: new PublicKey(acc.pubkey),
         isSigner: acc.isSigner,
@@ -516,7 +529,9 @@ async function executeSimpleTransaction(
       })),
       programId,
       data: instructionData
-    });
+    };
+    
+    transaction.add(instruction);
   }
   
   // Add cleanup instruction if present, which is also important
@@ -525,7 +540,7 @@ async function executeSimpleTransaction(
     const programId = new PublicKey(cleanupInst.programId);
     const instructionData = Buffer.from(cleanupInst.data, 'base64');
     
-    transaction.add({
+    const instruction: InstructionType = {
       keys: cleanupInst.accounts.map((acc: any) => ({
         pubkey: new PublicKey(acc.pubkey),
         isSigner: acc.isSigner,
@@ -533,7 +548,9 @@ async function executeSimpleTransaction(
       })),
       programId,
       data: instructionData
-    });
+    };
+    
+    transaction.add(instruction);
   }
   
   // Get a recent blockhash

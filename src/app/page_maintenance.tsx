@@ -96,7 +96,7 @@ export default function Home() {
     "BURN YOUR DUST, YOLO THE REST!",
     "INCINERATE TRASH, WIN CASH!",
     "TORCH YOUR TOKENS, LAMBO SOON™",
-    "PAPER WALLETS? BURN 'EM! 🔥",
+    "PAPER WALLETS? BURN &apos;EM! 🔥",
     "FROM DUST TO DIAMOND HANDS! 💎",
     "BURN NOW, MOON LATER! 🚀"
   ], []);
@@ -303,10 +303,10 @@ export default function Home() {
               <span className="mr-2">🛠️</span> Maintenance Mode <span className="ml-2">🛠️</span>
             </h1>
             <p className="text-center text-gray-300 mb-4">
-              Sorry, we're currently performing maintenance on our platform to provide you with a better experience.
+              Sorry, we&apos;re currently performing maintenance on our platform to provide you with a better experience.
             </p>
             <p className="text-center text-gray-300 mb-6">
-              We'll be back online soon! Please check our social channels for updates.
+              We&apos;ll be back online soon! Please check our social channels for updates.
             </p>
             <div className="flex justify-center">
               <div className="animate-bounce text-3xl text-yellow-400">⏳</div>
@@ -326,7 +326,7 @@ export default function Home() {
               <div className="max-w-md mx-auto bg-black bg-opacity-50 p-4 rounded-lg border border-gray-700">
                 <h3 className="text-purple-400 font-bold mb-2">While you wait:</h3>
                 <p className="text-gray-300">
-                  Join our community channels for the latest updates and to learn when we're back online!
+                  Join our community channels for the latest updates and to learn when we&apos;re back online!
                 </p>
               </div>
             </div>
@@ -376,8 +376,8 @@ export default function Home() {
                 You get about 0.00203928 <SolanaLogo width={14} height={12} /> per empty token account (after our 2.1% platform fee). When you incinerate tokens, you can choose to either withdraw directly to your wallet or gamble with Plinko for a chance to multiply your earnings.
               </FAQItem>
               
-              <FAQItem question="What is 'SOL Recovered'?">
-                "SOL Recovered" refers to the total amount of SOL that has been reclaimed from closing empty token accounts across all users. When you close empty token accounts, you recover the rent space deposit that was locked in these accounts, which is returned as SOL. This process frees up blockchain space and returns the locked value to users.
+              <FAQItem question="What is &apos;SOL Recovered&apos;?">
+                &quot;SOL Recovered&quot; refers to the total amount of SOL that has been reclaimed from closing empty token accounts across all users. When you close empty token accounts, you recover the rent space deposit that was locked in these accounts, which is returned as SOL. This process frees up blockchain space and returns the locked value to users.
               </FAQItem>
               
               <FAQItem question="What are my options after burning tokens?">
@@ -408,7 +408,7 @@ export default function Home() {
                   <li><strong>Staking rewards</strong> for providing liquidity</li>
                   <li><strong>Exclusive access</strong> to new features and games</li>
                 </ul>
-                <p className="mt-2">We've implemented a <strong className="text-green-400">buyback mechanism</strong> where a portion of platform fees goes toward purchasing and burning $PLINC tokens. This reduces the circulating supply over time - the more you play, the more tokens get burned!</p>
+                <p className="mt-2">We&apos;ve implemented a <strong className="text-green-400">buyback mechanism</strong> where a portion of platform fees goes toward purchasing and burning $PLINC tokens. This reduces the circulating supply over time - the more you play, the more tokens get burned!</p>
                 <p className="mt-2 text-yellow-300 font-bold">Contract Address: 49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump</p>
               </FAQItem>
             </div>

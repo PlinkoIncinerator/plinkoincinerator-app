@@ -29,7 +29,7 @@ export default function Roadmap() {
             </h1>
             <p className="text-lg md:text-xl text-gray-300 max-w-3xl mx-auto leading-relaxed mb-10">
               Building the ultimate token burning platform with innovative gaming experiences. 
-              Here's our vision for the future of PlinkoIncinerator.
+              Here&apos;s our vision for the future of PlinkoIncinerator.
             </p>
             
             {/* Roadmap Type Toggle */}

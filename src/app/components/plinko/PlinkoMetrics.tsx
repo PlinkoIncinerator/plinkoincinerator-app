@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { formatAmount } from '../../utils/walletService';
 import { API_BASE_URL } from '../../config/constants';
@@ -75,7 +75,7 @@ export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   
-  const fetchMetrics = async () => {
+  const fetchMetrics = useCallback(async () => {
     try {
       setLoading(true);
       console.log('API_BASE_URL', API_BASE_URL);
@@ -115,7 +115,7 @@ export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded
     } finally {
       setLoading(false);
     }
-  };
+  }, [onMetricsLoaded]);
   
   useEffect(() => {
     fetchMetrics();
@@ -125,7 +125,7 @@ export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded
     
     // Clear interval on component unmount
     return () => clearInterval(intervalId);
-  }, [refreshInterval, onMetricsLoaded]);
+  }, [refreshInterval, fetchMetrics]);
   
   if (loading && !metrics) {
     return (
