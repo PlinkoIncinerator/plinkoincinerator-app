@@ -2,10 +2,12 @@ import {
   Connection, 
   Keypair, 
   LAMPORTS_PER_SOL, 
-  PublicKey, 
-  sendAndConfirmTransaction, 
-  SystemProgram, 
-  Transaction 
+  Transaction,
+  VersionedTransaction,
+  TransactionMessage,
+  PublicKey,
+  sendAndConfirmTransaction,
+  ComputeBudgetProgram
 } from '@solana/web3.js';
 import * as bs58 from 'bs58';
 import dotenv from 'dotenv';
@@ -16,83 +18,26 @@ import { QuoteResponse } from '@jup-ag/api';
 dotenv.config();
 
 // Configuration
-const NUM_ACCOUNTS = 5; // Number of test accounts to generate
-const SOL_AMOUNT_PER_TRADE = 0.04; // Amount of SOL to use per trade
+const SOL_AMOUNT_PER_TRADE = 0.01; // Amount of SOL to use per trade
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const JUPITER_API_URL = "https://lite-api.jup.ag";
+// Select a few known tokens with smaller transaction sizes that work well with Jupiter
 const TEST_TOKEN_MINTS = [
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
-  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
-  'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So', // mSOL
-  'So11111111111111111111111111111111111111112', // Wrapped SOL
-  'AfXGjKVcYKUYz8jGN1NQA5GgxHjrfJVvwL4zzDt5iJqR', // HALO
-  '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // ETH (Wormhole)
-  '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj', // stSOL
-  'MNDEFzGvMt87ueuHvVU9VcTqsAP5b3fTGPsHuuPA5ey', // MNDE
-  'kinXdEcpDQeHPEuQnqmUgtYykqKGVFq6CeVX5iAHJq6', // KIN
-  'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3', // PYTH
-  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R', // RAY
-  'poLisWXnNRwC6oBu1vHiuKQzFjGL4XDSu4g9qjz9qVk', // POLIS
-  '49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump', // PLINC
-  'DfDaFv16v6FaQJ8D7xH5Cy9GF9bm4Qfa8GrRKFqr8Gps', // CHIC
-  '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU', // SAMO
-  'F23R8Bw9HeHaRGQuAVsGyDB9PKCPfK5X5bqUQY6J7U3c', // SIX
-  'NeonTjSjsuo3rexttjKF7Kb35Q5Z8tknwJnoEWHuFd7', // NEON
-  'DNBKJar7QcHEswh9J6yrDAcrFbZbAhHNMfqUNEVyzgq1', // DUNK
-  '8PudpomcDzTCpn6ZgvTuNMu2uDNxT9mW452bQz5JxnN3', // MOLE
+  // Stick to just 2 well-known tokens that should work well
+//   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+//   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+  
+  // The following tokens may have issues with large transactions:
+  '9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump', // fart - transaction too large for selling
+  'CG2cAcyRGhhpor5z1gYMoQRoNFPXXVKmNiEuPG8fpump', // transaction too large
+  '6bdTRHhdZenJQYLTxaYc8kH74GBNP9DoGhPnCjfypump', // transaction too large
+  'AgF6niXaYJa9CFd8kVnhnke3jT8Uiz2GvDtkVpdopump', // size - no sell route
+  '49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump', // plinc
+  '7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr', // wrapped sol - tx too large
 ];
-
-// Directory to save wallet keypairs
-const WALLETS_DIR = path.join(__dirname, 'test-wallets');
-
-// Ensure directories exist
-if (!fs.existsSync(WALLETS_DIR)){
-  fs.mkdirSync(WALLETS_DIR, { recursive: true });
-}
 
 // Initialize connection to Solana
 const connection = new Connection(RPC_URL, 'confirmed');
-
-/**
- * Generate a new Solana wallet
- */
-function generateWallet(): Keypair {
-  const keypair = Keypair.generate();
-  return keypair;
-}
-
-/**
- * Save wallet keypair to a file
- */
-function saveWallet(keypair: Keypair, index: number): void {
-  const walletData = {
-    publicKey: keypair.publicKey.toString(),
-    privateKey: bs58.encode(keypair.secretKey),
-  };
-  
-  const filePath = path.join(WALLETS_DIR, `wallet-${index}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(walletData, null, 2));
-  console.log(`Wallet ${index} saved to ${filePath}`);
-}
-
-/**
- * Load wallet keypair from a file
- */
-function loadWallet(index: number): Keypair | null {
-  try {
-    const filePath = path.join(WALLETS_DIR, `wallet-${index}.json`);
-    if (!fs.existsSync(filePath)) {
-      return null;
-    }
-    
-    const walletData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-    return Keypair.fromSecretKey(bs58.decode(walletData.privateKey));
-  } catch (error) {
-    console.error(`Error loading wallet ${index}:`, error);
-    return null;
-  }
-}
 
 /**
  * Get Jupiter quote for a token swap
@@ -100,7 +45,8 @@ function loadWallet(index: number): Keypair | null {
 async function getJupiterQuote(
   inputMint: string, 
   outputMint: string, 
-  amount: number
+  amount: number,
+  slippageBps: number = 50 // Default 0.5% slippage
 ): Promise<QuoteResponse | null> {
   try {
     const amountInLamports = Math.floor(amount * LAMPORTS_PER_SOL);
@@ -108,10 +54,12 @@ async function getJupiterQuote(
       inputMint: inputMint,
       outputMint: outputMint,
       amount: amountInLamports.toString(),
-      slippageBps: '50'  // 0.5% slippage
+      slippageBps: slippageBps.toString()
     }).toString();
     
     const quoteUrl = `${JUPITER_API_URL}/swap/v1/quote?${queryParams}`;
+    console.log(`Quote URL: ${quoteUrl}`);
+    
     const response = await fetch(quoteUrl, {
       method: 'GET',
       headers: {
@@ -133,6 +81,21 @@ async function getJupiterQuote(
 }
 
 /**
+ * Split transaction instructions to handle large transactions
+ */
+function splitInstructions(instructions: any[]): any[][] {
+  // Split into very small chunks to handle large accounts
+  const chunks = [];
+  const chunkSize = 2; // Smaller chunk size to avoid transaction size limits
+  
+  for (let i = 0; i < instructions.length; i += chunkSize) {
+    chunks.push(instructions.slice(i, i + chunkSize));
+  }
+  
+  return chunks;
+}
+
+/**
  * Execute a token swap using Jupiter
  */
 async function executeJupiterSwap(
@@ -141,229 +104,479 @@ async function executeJupiterSwap(
   outputMint: string,
   amount: number
 ): Promise<string | null> {
-  try {
-    // 1. Get Jupiter quote for the swap
-    console.log(`Getting quote for ${amount} SOL to ${outputMint}...`);
-    const quoteResponse = await getJupiterQuote(inputMint, outputMint, amount);
-    
-    if (!quoteResponse || !quoteResponse.outAmount) {
-      throw new Error('Invalid quote response from Jupiter');
+  // For selling tokens back to SOL (when input is not SOL), start with higher slippage
+  const initialSlippage = inputMint !== 'So11111111111111111111111111111111111111112' ? 150 : 50;
+  let currentSlippage = initialSlippage;
+  let maxRetries = 3;
+  let lastError: any = null;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Skip compute-heavy Jupiter operations for selling if skipJupiter flag is set
+      // 1. Get Jupiter quote for the swap
+      console.log(`Attempt ${attempt + 1}/${maxRetries}: Getting quote for swap with ${currentSlippage/100}% slippage...`);
+      const quoteResponse = await getJupiterQuote(inputMint, outputMint, amount, currentSlippage);
+      
+      if (!quoteResponse || !quoteResponse.outAmount) {
+        throw new Error('Invalid quote response from Jupiter');
+      }
+      
+      console.log(`Quote received: ${quoteResponse.outAmount} tokens`);
+      
+      // 2. Get swap instructions
+      console.log('Getting swap instructions...');
+      const swapRequest = {
+        quoteResponse: quoteResponse,
+        userPublicKey: wallet.publicKey.toString(),
+        wrapUnwrapSOL: true,
+        // Optional parameters to increase success rate
+        // Use minimal compute units to reduce transaction size
+        prioritizationFeeLamports: {
+          priorityLevelWithMaxLamports: {
+            maxLamports: 10000000,
+            priorityLevel: "high"
+          } 
+        },
+        // Set this to true to let Jupiter optimize compute units
+        dynamicComputeUnitLimit: true
+      };
+      
+      const response = await fetch(`${JUPITER_API_URL}/swap/v1/swap-instructions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'Plinko Test Script'
+        },
+        body: JSON.stringify(swapRequest)
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Jupiter swap API returned status ${response.status}: ${errorText}`);
+      }
+      
+      const swapResponse = await response.json();
+      
+      // 3. Execute the transaction
+      console.log('Building transaction from Jupiter instructions...');
+      
+      try {
+        try {
+          // Try using versioned transaction first
+          return await executeVersionedTransaction(wallet, swapResponse);
+        } catch (error: any) {
+          console.warn('Versioned transaction failed, trying with split transactions:', error);
+          
+          // If we get any kind of error, try split transactions immediately
+          return await executeSplitTransactions(wallet, swapResponse);
+        }
+      } catch (error: any) {
+        // If transaction too large or any other error, try to use skipPreflight
+        if (error.message && (
+          error.message.includes('Transaction too large') ||
+          error.message.includes('encoding overruns')
+        )) {
+          console.log('Transaction size issue, trying with skipPreflight...');
+          return await executeSimpleTransaction(wallet, swapResponse);
+        }
+        throw error;
+      }
+    } catch (error: any) {
+      console.error(`Error executing swap (attempt ${attempt + 1}/${maxRetries}):`, error);
+      
+      // Handle "Could not find any route" error - nothing we can do for this
+      if (error.message && error.message.includes('Could not find any route')) {
+        console.error('No route available for this token swap. This token might not have enough liquidity.');
+        // If buying, we can just skip this token
+        if (inputMint === 'So11111111111111111111111111111111111111112') {
+          return null; // Skip this token when buying
+        }
+        // If selling and no route, we might be stuck with the token
+        console.error('Warning: Unable to sell token back to SOL. No route available.');
+        return null;
+      }
+      
+      // If we get error 0x1771 (6001), increase slippage and retry
+      if (error.message && 
+          (error.message.includes('custom program error: 0x1771') || 
+          error.message.includes('Slippage tolerance exceeded'))) {
+        
+        if (attempt < maxRetries - 1) {
+          currentSlippage *= 2; // Double the slippage for next attempt
+          console.log(`Increasing slippage to ${currentSlippage/100}% and retrying...`);
+          lastError = error;
+          continue; // Skip to next iteration
+        }
+      }
+      
+      lastError = error;
     }
+  }
+  
+  console.error('All swap attempts failed:', lastError);
+  return null;
+}
+
+/**
+ * Execute a split transaction for large swaps
+ */
+async function executeSplitTransactions(
+  wallet: Keypair,
+  swapResponse: any
+): Promise<string> {
+  console.log('Executing split transactions...');
+  
+  // Collect all instructions
+  const allInstructions = [];
+  
+  // Add compute budget instructions if present
+  if (swapResponse.computeBudgetInstructions) {
+    for (const instruction of swapResponse.computeBudgetInstructions) {
+      const programId = new PublicKey(instruction.programId);
+      const instructionData = Buffer.from(instruction.data, 'base64');
+      
+      allInstructions.push({
+        keys: instruction.accounts.map((acc: any) => ({
+          pubkey: new PublicKey(acc.pubkey),
+          isSigner: acc.isSigner,
+          isWritable: acc.isWritable
+        })),
+        programId,
+        data: instructionData
+      });
+    }
+  }
+  
+  // Add setup instructions
+  if (swapResponse.setupInstructions) {
+    for (const instruction of swapResponse.setupInstructions) {
+      const programId = new PublicKey(instruction.programId);
+      const instructionData = Buffer.from(instruction.data, 'base64');
+      
+      allInstructions.push({
+        keys: instruction.accounts.map((acc: any) => ({
+          pubkey: new PublicKey(acc.pubkey),
+          isSigner: acc.isSigner,
+          isWritable: acc.isWritable
+        })),
+        programId,
+        data: instructionData
+      });
+    }
+  }
+  
+  // Add the main swap instruction
+  if (swapResponse.swapInstruction) {
+    const swapInst = swapResponse.swapInstruction;
+    const programId = new PublicKey(swapInst.programId);
+    const instructionData = Buffer.from(swapInst.data, 'base64');
     
-    console.log(`Quote received: ${quoteResponse.outAmount} tokens`);
-    
-    // 2. Get swap instructions
-    console.log('Getting swap instructions...');
-    const swapRequest = {
-      quoteResponse: quoteResponse,
-      userPublicKey: wallet.publicKey.toString(),
-      wrapUnwrapSOL: true
-    };
-    
-    const response = await fetch(`${JUPITER_API_URL}/swap/v1/swap-instructions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'User-Agent': 'Plinko Test Script'
-      },
-      body: JSON.stringify(swapRequest)
+    allInstructions.push({
+      keys: swapInst.accounts.map((acc: any) => ({
+        pubkey: new PublicKey(acc.pubkey),
+        isSigner: acc.isSigner,
+        isWritable: acc.isWritable
+      })),
+      programId,
+      data: instructionData
     });
+  }
+  
+  // Add cleanup instruction if present
+  if (swapResponse.cleanupInstruction) {
+    const cleanupInst = swapResponse.cleanupInstruction;
+    const programId = new PublicKey(cleanupInst.programId);
+    const instructionData = Buffer.from(cleanupInst.data, 'base64');
     
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Jupiter swap API returned status ${response.status}: ${errorText}`);
-    }
-    
-    const swapResponse = await response.json();
-    
-    // 3. Execute the transaction
-    console.log('Building transaction from Jupiter instructions...');
-    
-    // Create a new transaction
-    const transaction = new Transaction();
-    
-    // Add compute budget instructions if present
-    if (swapResponse.computeBudgetInstructions) {
-      for (const instruction of swapResponse.computeBudgetInstructions) {
-        const programId = new PublicKey(instruction.programId);
-        const instructionData = Buffer.from(instruction.data, 'base64');
-        
-        transaction.add({
-          keys: instruction.accounts.map((acc: any) => ({
-            pubkey: new PublicKey(acc.pubkey),
-            isSigner: acc.isSigner,
-            isWritable: acc.isWritable
-          })),
-          programId,
-          data: instructionData
-        });
-      }
-    }
-    
-    // Add setup instructions
-    if (swapResponse.setupInstructions) {
-      for (const instruction of swapResponse.setupInstructions) {
-        const programId = new PublicKey(instruction.programId);
-        const instructionData = Buffer.from(instruction.data, 'base64');
-        
-        transaction.add({
-          keys: instruction.accounts.map((acc: any) => ({
-            pubkey: new PublicKey(acc.pubkey),
-            isSigner: acc.isSigner,
-            isWritable: acc.isWritable
-          })),
-          programId,
-          data: instructionData
-        });
-      }
-    }
-    
-    // Add the main swap instruction
-    if (swapResponse.swapInstruction) {
-      const swapInst = swapResponse.swapInstruction;
-      const programId = new PublicKey(swapInst.programId);
-      const instructionData = Buffer.from(swapInst.data, 'base64');
-      
-      transaction.add({
-        keys: swapInst.accounts.map((acc: any) => ({
-          pubkey: new PublicKey(acc.pubkey),
-          isSigner: acc.isSigner,
-          isWritable: acc.isWritable
-        })),
-        programId,
-        data: instructionData
-      });
-    }
-    
-    // Add cleanup instruction if present
-    if (swapResponse.cleanupInstruction) {
-      const cleanupInst = swapResponse.cleanupInstruction;
-      const programId = new PublicKey(cleanupInst.programId);
-      const instructionData = Buffer.from(cleanupInst.data, 'base64');
-      
-      transaction.add({
-        keys: cleanupInst.accounts.map((acc: any) => ({
-          pubkey: new PublicKey(acc.pubkey),
-          isSigner: acc.isSigner,
-          isWritable: acc.isWritable
-        })),
-        programId,
-        data: instructionData
-      });
-    }
+    allInstructions.push({
+      keys: cleanupInst.accounts.map((acc: any) => ({
+        pubkey: new PublicKey(acc.pubkey),
+        isSigner: acc.isSigner,
+        isWritable: acc.isWritable
+      })),
+      programId,
+      data: instructionData
+    });
+  }
+  
+  // Split instructions into multiple transactions if needed
+  const instructionBatches = splitInstructions(allInstructions);
+  console.log(`Split into ${instructionBatches.length} transactions`);
+  
+  let lastSignature = '';
+  
+  // Execute each batch of instructions
+  for (let i = 0; i < instructionBatches.length; i++) {
+    const instructions = instructionBatches[i];
+    console.log(`Executing transaction batch ${i + 1}/${instructionBatches.length} with ${instructions.length} instructions`);
     
     // Get a recent blockhash
     const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    
+    // Create a transaction for this batch
+    const transaction = new Transaction();
     transaction.recentBlockhash = blockhash;
     transaction.feePayer = wallet.publicKey;
     
+    // Add instructions to the transaction
+    for (const instruction of instructions) {
+      transaction.add(instruction);
+    }
+    
     // Sign and send the transaction
-    console.log('Sending transaction...');
+    console.log(`Sending transaction batch ${i + 1}...`);
+    try {
+      const signature = await sendAndConfirmTransaction(
+        connection,
+        transaction,
+        [wallet],
+        { 
+          commitment: 'confirmed',
+          skipPreflight: false,
+          maxRetries: 3
+        }
+      );
+      
+      console.log(`Transaction batch ${i + 1} confirmed: ${signature}`);
+      lastSignature = signature;
+    } catch (error) {
+      console.error(`Error in transaction batch ${i + 1}:`, error);
+      throw error;
+    }
+    
+    // Wait a bit between transactions
+    if (i < instructionBatches.length - 1) {
+      console.log('Waiting between transaction batches...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+  
+  return lastSignature;
+}
+
+/**
+ * Execute a versioned transaction (supports larger transactions)
+ */
+async function executeVersionedTransaction(
+  wallet: Keypair,
+  swapResponse: any
+): Promise<string> {
+  // Collect all instructions from the swap response
+  const instructions = [];
+  
+  // Track if we already have compute budget instructions
+  const hasComputeBudgetInstructions = swapResponse.computeBudgetInstructions && 
+                                       swapResponse.computeBudgetInstructions.length > 0;
+  
+  // Add compute budget instructions only if not already in the response
+  if (!hasComputeBudgetInstructions) {
+    // Add compute budget instruction to increase transaction size limit
+    instructions.push(
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 1400000 })
+    );
+    
+    // Add compute budget fee instruction
+    instructions.push(
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 })
+    );
+  }
+  
+  // Add compute budget instructions if present
+  if (swapResponse.computeBudgetInstructions) {
+    for (const instruction of swapResponse.computeBudgetInstructions) {
+      const programId = new PublicKey(instruction.programId);
+      const instructionData = Buffer.from(instruction.data, 'base64');
+      
+      instructions.push({
+        keys: instruction.accounts.map((acc: any) => ({
+          pubkey: new PublicKey(acc.pubkey),
+          isSigner: acc.isSigner,
+          isWritable: acc.isWritable
+        })),
+        programId,
+        data: instructionData
+      });
+    }
+  }
+  
+  // Add setup instructions
+  if (swapResponse.setupInstructions) {
+    for (const instruction of swapResponse.setupInstructions) {
+      const programId = new PublicKey(instruction.programId);
+      const instructionData = Buffer.from(instruction.data, 'base64');
+      
+      instructions.push({
+        keys: instruction.accounts.map((acc: any) => ({
+          pubkey: new PublicKey(acc.pubkey),
+          isSigner: acc.isSigner,
+          isWritable: acc.isWritable
+        })),
+        programId,
+        data: instructionData
+      });
+    }
+  }
+  
+  // Add the main swap instruction
+  if (swapResponse.swapInstruction) {
+    const swapInst = swapResponse.swapInstruction;
+    const programId = new PublicKey(swapInst.programId);
+    const instructionData = Buffer.from(swapInst.data, 'base64');
+    
+    instructions.push({
+      keys: swapInst.accounts.map((acc: any) => ({
+        pubkey: new PublicKey(acc.pubkey),
+        isSigner: acc.isSigner,
+        isWritable: acc.isWritable
+      })),
+      programId,
+      data: instructionData
+    });
+  }
+  
+  // Add cleanup instruction if present
+  if (swapResponse.cleanupInstruction) {
+    const cleanupInst = swapResponse.cleanupInstruction;
+    const programId = new PublicKey(cleanupInst.programId);
+    const instructionData = Buffer.from(cleanupInst.data, 'base64');
+    
+    instructions.push({
+      keys: cleanupInst.accounts.map((acc: any) => ({
+        pubkey: new PublicKey(acc.pubkey),
+        isSigner: acc.isSigner,
+        isWritable: acc.isWritable
+      })),
+      programId,
+      data: instructionData
+    });
+  }
+  
+  // Get the latest blockhash
+  const { blockhash, lastValidBlockHeight } = 
+    await connection.getLatestBlockhash('confirmed');
+  
+  // Create a versioned transaction
+  const messageV0 = new TransactionMessage({
+    payerKey: wallet.publicKey,
+    recentBlockhash: blockhash,
+    instructions
+  }).compileToV0Message();
+  
+  const transaction = new VersionedTransaction(messageV0);
+  
+  // Sign the transaction
+  transaction.sign([wallet]);
+  
+  // Send the transaction
+  console.log('Sending versioned transaction...');
+  const signature = await connection.sendTransaction(transaction, {
+    skipPreflight: false,
+    maxRetries: 3
+  });
+  
+  // Confirm transaction
+  await connection.confirmTransaction({
+    signature,
+    blockhash,
+    lastValidBlockHeight
+  });
+  
+  console.log(`Versioned transaction confirmed: ${signature}`);
+  return signature;
+}
+
+
+/**
+ * Execute a simple transaction with skipPreflight
+ * Used as a last resort for transactions that are too large
+ */
+async function executeSimpleTransaction(
+  wallet: Keypair,
+  swapResponse: any
+): Promise<string> {
+  console.log('Executing simple transaction with skipPreflight...');
+  
+  // Create a new transaction
+  const transaction = new Transaction();
+  
+  // Add only the essential instructions
+  
+  // Add main swap instruction only, which is the most important
+  if (swapResponse.swapInstruction) {
+    const swapInst = swapResponse.swapInstruction;
+    const programId = new PublicKey(swapInst.programId);
+    const instructionData = Buffer.from(swapInst.data, 'base64');
+    
+    transaction.add({
+      keys: swapInst.accounts.map((acc: any) => ({
+        pubkey: new PublicKey(acc.pubkey),
+        isSigner: acc.isSigner,
+        isWritable: acc.isWritable
+      })),
+      programId,
+      data: instructionData
+    });
+  }
+  
+  // Add cleanup instruction if present, which is also important
+  if (swapResponse.cleanupInstruction) {
+    const cleanupInst = swapResponse.cleanupInstruction;
+    const programId = new PublicKey(cleanupInst.programId);
+    const instructionData = Buffer.from(cleanupInst.data, 'base64');
+    
+    transaction.add({
+      keys: cleanupInst.accounts.map((acc: any) => ({
+        pubkey: new PublicKey(acc.pubkey),
+        isSigner: acc.isSigner,
+        isWritable: acc.isWritable
+      })),
+      programId,
+      data: instructionData
+    });
+  }
+  
+  // Get a recent blockhash
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  transaction.recentBlockhash = blockhash;
+  transaction.feePayer = wallet.publicKey;
+  
+  // Sign and send the transaction
+  console.log('Sending transaction with skipPreflight...');
+  try {
     const signature = await sendAndConfirmTransaction(
       connection,
       transaction,
       [wallet],
-      { commitment: 'confirmed' }
+      { 
+        commitment: 'confirmed',
+        skipPreflight: true, // Skip preflight check to avoid transaction size check
+        maxRetries: 5
+      }
     );
     
     console.log(`Transaction confirmed: ${signature}`);
     return signature;
   } catch (error) {
-    console.error('Error executing swap:', error);
-    return null;
+    console.error('Error with simplified transaction:', error);
+    throw error;
   }
 }
 
 /**
- * Fund a test wallet with SOL from a source wallet
+ * Execute token trades for wallet
  */
-async function fundWallet(sourceKeypair: Keypair, destinationPublicKey: PublicKey, amount: number): Promise<string | null> {
-  try {
-    const transaction = new Transaction().add(
-      SystemProgram.transfer({
-        fromPubkey: sourceKeypair.publicKey,
-        toPubkey: destinationPublicKey,
-        lamports: amount * LAMPORTS_PER_SOL
-      })
-    );
-    
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer = sourceKeypair.publicKey;
-    
-    const signature = await sendAndConfirmTransaction(
-      connection,
-      transaction,
-      [sourceKeypair],
-      { commitment: 'confirmed' }
-    );
-    
-    return signature;
-  } catch (error) {
-    console.error('Error funding wallet:', error);
-    return null;
-  }
-}
-
-/**
- * Generate test accounts and save them to files
- */
-async function generateTestAccounts(): Promise<void> {
-  console.log(`Generating ${NUM_ACCOUNTS} test accounts...`);
-  
-  for (let i = 0; i < NUM_ACCOUNTS; i++) {
-    // Check if wallet already exists
-    const existingWallet = loadWallet(i);
-    
-    if (existingWallet) {
-      console.log(`Wallet ${i} already exists, skipping generation`);
-      continue;
-    }
-    
-    // Generate new wallet
-    const wallet = generateWallet();
-    console.log(`Generated wallet ${i} with public key: ${wallet.publicKey.toString()}`);
-    
-    // Save wallet to file
-    saveWallet(wallet, i);
-  }
-}
-
-/**
- * Execute token trades for a specific wallet
- */
-async function executeTokenTradesForWallet(
-  walletIndex: number, 
-  sourceKeypair: Keypair, 
+async function executeTokenTrades(
+  wallet: Keypair, 
   numTrades: number
 ): Promise<void> {
-  const wallet = loadWallet(walletIndex);
-  
-  if (!wallet) {
-    console.error(`Wallet ${walletIndex} not found`);
-    return;
-  }
-  
   // Check wallet balance
   const balance = await connection.getBalance(wallet.publicKey);
+  console.log(`Wallet balance: ${balance / LAMPORTS_PER_SOL} SOL`);
   
-  // Fund wallet if needed
-  if (balance < SOL_AMOUNT_PER_TRADE * LAMPORTS_PER_SOL * 2) {
-    const amountToFund = 0.1 + (numTrades * SOL_AMOUNT_PER_TRADE);
-    console.log(`Funding wallet ${walletIndex} with ${amountToFund} SOL...`);
-    
-    const signature = await fundWallet(sourceKeypair, wallet.publicKey, amountToFund);
-    
-    if (!signature) {
-      console.error(`Failed to fund wallet ${walletIndex}`);
-      return;
-    }
-    
-    console.log(`Wallet ${walletIndex} funded with ${amountToFund} SOL: ${signature}`);
-    
-    // Wait for confirmation
-    await new Promise(resolve => setTimeout(resolve, 2000));
+  if (balance < SOL_AMOUNT_PER_TRADE * LAMPORTS_PER_SOL) {
+    console.error(`Error: Wallet has insufficient funds. Please add SOL to it.`);
+    process.exit(1);
   }
   
   // Execute trades
@@ -377,7 +590,7 @@ async function executeTokenTradesForWallet(
       continue;
     }
     
-    console.log(`\nExecuting trade ${i + 1}/${numTrades} for wallet ${walletIndex}...`);
+    console.log(`\nExecuting trade ${i + 1}/${numTrades}...`);
     console.log(`Swapping ${SOL_AMOUNT_PER_TRADE} SOL for ${targetToken}...`);
     
     // Buy token
@@ -389,17 +602,21 @@ async function executeTokenTradesForWallet(
     );
     
     if (!buySignature) {
-      console.error(`Failed to execute buy swap for wallet ${walletIndex}`);
+      console.error(`Failed to execute buy swap`);
       continue;
     }
     
     console.log(`Buy transaction confirmed: ${buySignature}`);
     
     // Wait between transactions
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    console.log(`Waiting 10 seconds before selling...`);
+    await new Promise(resolve => setTimeout(resolve, 10000));
     
-    // Sell token back to SOL
+    // Sell token back to SOL - wait more time to avoid race conditions
     console.log(`Swapping ${targetToken} back to SOL...`);
+    
+    // For sell transactions, we don't specify an amount since we want to sell all tokens
+    // Jupiter API will handle this if we provide a very small amount
     const sellSignature = await executeJupiterSwap(
       wallet,
       targetToken,
@@ -408,14 +625,16 @@ async function executeTokenTradesForWallet(
     );
     
     if (!sellSignature) {
-      console.error(`Failed to execute sell swap for wallet ${walletIndex}`);
-      continue;
+      console.error(`Failed to execute sell swap - you may be left with some ${targetToken} tokens`);
+    } else {
+      console.log(`Sell transaction confirmed: ${sellSignature}`);
     }
     
-    console.log(`Sell transaction confirmed: ${sellSignature}`);
-    
     // Wait between trades
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    if (i < numTrades - 1) {
+      console.log(`Waiting 15 seconds before next trade...`);
+      await new Promise(resolve => setTimeout(resolve, 15000));
+    }
   }
 }
 
@@ -423,42 +642,28 @@ async function executeTokenTradesForWallet(
  * Main function
  */
 async function main(): Promise<void> {
-  console.log('Starting test account generator...');
+  console.log('Starting test trading script...');
   
-  // Check for source wallet private key
-  const sourcePrivateKey = process.env.TEST_SOURCE_WALLET_PRIVATE_KEY;
-  if (!sourcePrivateKey) {
-    console.error('Error: TEST_SOURCE_WALLET_PRIVATE_KEY not found in environment variables');
-    console.log('Please add a source wallet private key to your .env file');
+  // Check for wallet private key
+  const walletPrivateKey = process.env.TEST_WALLET_PRIVATE_KEY;
+  if (!walletPrivateKey) {
+    console.error('Error: TEST_WALLET_PRIVATE_KEY not found in environment variables');
+    console.log('Please add a wallet private key to your .env file');
     process.exit(1);
   }
   
-  // Load source wallet
-  const sourceKeypair = Keypair.fromSecretKey(bs58.decode(sourcePrivateKey));
-  console.log(`Source wallet: ${sourceKeypair.publicKey.toString()}`);
+  // Load wallet
+  const wallet = Keypair.fromSecretKey(bs58.decode(walletPrivateKey));
+  console.log(`Wallet: ${wallet.publicKey.toString()}`);
   
-  // Check source wallet balance
-  const sourceBalance = await connection.getBalance(sourceKeypair.publicKey);
-  console.log(`Source wallet balance: ${sourceBalance / LAMPORTS_PER_SOL} SOL`);
+  // Number of trades to execute
+  const numTrades = 3;
   
-  if (sourceBalance < 0.1 * LAMPORTS_PER_SOL) {
-    console.error('Error: Source wallet has insufficient funds. Please add SOL to it.');
-    process.exit(1);
-  }
+  // Execute trades for wallet
+  console.log(`\n=== Processing trades ===`);
+  await executeTokenTrades(wallet, numTrades);
   
-  // Generate test accounts
-  await generateTestAccounts();
-  
-  // Number of trades for each wallet
-  const numTradesPerWallet = 3;
-  
-  // Execute trades for each wallet
-  for (let i = 0; i < NUM_ACCOUNTS; i++) {
-    console.log(`\n=== Processing wallet ${i} ===`);
-    await executeTokenTradesForWallet(i, sourceKeypair, numTradesPerWallet);
-  }
-  
-  console.log('\nTest accounts generation and trades completed!');
+  console.log('\nTest trading completed!');
 }
 
 // Run the script
