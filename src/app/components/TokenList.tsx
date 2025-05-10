@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { SolanaLogo } from './PlinkoIncinerator';
 
 interface TokenListProps {
   eligibleTokens: TokenAccount[];
@@ -10,6 +11,8 @@ interface TokenListProps {
   onTokenSearchChange: (value: string) => void;
   onToggleTokenSelection: (pubkey: string) => void;
   onToggleAllTokens: (selected: boolean) => void;
+  solToUsd: number | null;
+  feePercentage: number;
 }
 
 interface TokenAccount {
@@ -26,6 +29,7 @@ interface TokenAccount {
   isEligible?: boolean;
   isProcessed?: boolean;
   potentialValue?: number;
+  valueUsd?: number;
 }
 
 export default function TokenList({
@@ -34,19 +38,30 @@ export default function TokenList({
   tokenSearch,
   onTokenSearchChange,
   onToggleTokenSelection,
-  onToggleAllTokens
+  onToggleAllTokens,
+  solToUsd,
+  feePercentage
 }: TokenListProps) {
-  // Hint component for token selection
-  const TokenSelectionHint = () => (
-    <div className="mt-3 mb-2 p-2 bg-blue-900 bg-opacity-20 rounded-md text-xs text-blue-200 border border-blue-800">
-      <div className="flex items-start">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-blue-400 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0114 0z" />
-        </svg>
-        <span>Click on a token card or checkbox to select/deselect it for incineration</span>
-      </div>
-    </div>
-  );
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+
+  const handleCopyAddress = async (address: string) => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopiedAddress(address);
+      setTimeout(() => setCopiedAddress(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy address:', err);
+    }
+  };
+
+  const filteredTokens = eligibleTokens.filter(token => {
+    const searchLower = tokenSearch.toLowerCase();
+    return (
+      token.name?.toLowerCase().includes(searchLower) ||
+      token.symbol?.toLowerCase().includes(searchLower) ||
+      token.mint.toLowerCase().includes(searchLower)
+    );
+  });
 
   return (
     <div className="mt-4 max-h-96 overflow-y-auto p-4 bg-gray-950 bg-opacity-95 rounded-lg border border-gray-800/50 shadow-xl">
@@ -80,137 +95,153 @@ export default function TokenList({
           </svg>
           <div>
             <p className="text-blue-200 mb-1">Empty token accounts take up space in your wallet.</p>
-            <p className="text-gray-300">Burn them to get {(0.00203928 * 0.85).toFixed(8)} SOL each (after 15% fee).</p>
+            <p className="text-gray-300">Burn them to get {(0.00203928 * (1 - feePercentage)).toFixed(8)} SOL each (after {(feePercentage * 100).toFixed(2)}% fee).</p>
           </div>
         </div>
       </div>
       
-      <TokenSelectionHint />
-      
-      {eligibleTokens.length > 5 && (
-        <div className="mb-4">
-          <div className="relative">
-            <input
-              type="text"
-              value={tokenSearch}
-              onChange={(e) => onTokenSearchChange(e.target.value)}
-              placeholder="Search tokens..."
-              className="w-full bg-gray-900 border border-gray-700 rounded-md py-2 pl-10 pr-4 text-sm focus:border-purple-500 focus:outline-none"
+      <div className="mb-4">
+        <div className="relative">
+          <input
+            type="text"
+            value={tokenSearch}
+            onChange={(e) => onTokenSearchChange(e.target.value)}
+            placeholder="Search tokens..."
+            className="w-full bg-gray-900 border border-gray-700 rounded-md py-2 pl-10 pr-4 text-sm focus:border-purple-500 focus:outline-none"
+          />
+          <svg 
+            xmlns="http://www.w3.org/2000/svg" 
+            className="h-5 w-5 absolute left-3 top-2.5 text-gray-400" 
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor"
+          >
+            <path 
+              strokeLinecap="round" 
+              strokeLinejoin="round" 
+              strokeWidth={2} 
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" 
             />
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              className="h-5 w-5 absolute left-3 top-2.5 text-gray-400" 
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
+          </svg>
+          {tokenSearch && (
+            <button 
+              onClick={() => onTokenSearchChange('')}
+              className="absolute right-3 top-2.5 text-gray-400 hover:text-white"
             >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" 
-              />
-            </svg>
-            {tokenSearch && (
-              <button 
-                onClick={() => onTokenSearchChange('')}
-                className="absolute right-3 top-2.5 text-gray-400 hover:text-white"
+              <svg 
+                xmlns="http://www.w3.org/2000/svg" 
+                className="h-5 w-5" 
+                fill="none" 
+                viewBox="0 0 24 24" 
+                stroke="currentColor"
               >
-                <svg 
-                  xmlns="http://www.w3.org/2000/svg" 
-                  className="h-5 w-5" 
-                  fill="none" 
-                  viewBox="0 0 24 24" 
-                  stroke="currentColor"
-                >
-                  <path 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
-                    strokeWidth={2} 
-                    d="M6 18L18 6M6 6l12 12" 
-                  />
-                </svg>
-              </button>
-            )}
-          </div>
+                <path 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  strokeWidth={2} 
+                  d="M6 18L18 6M6 6l12 12" 
+                />
+              </svg>
+            </button>
+          )}
         </div>
-      )}
+      </div>
       
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {eligibleTokens
-          .filter(token => 
-            tokenSearch === '' || 
-            token.name?.toLowerCase().includes(tokenSearch.toLowerCase()) || 
-            token.symbol?.toLowerCase().includes(tokenSearch.toLowerCase())
-          )
-          .map((token, index) => (
-            <div 
-              key={token.pubkey} 
-              className={`bg-gray-900/60 rounded-lg p-3 border transition-all ${token.isSelected ? 'border-purple-500/50' : 'border-gray-700/50 hover:border-gray-500/50'}`}
+      <div className="space-y-2 max-h-[400px] overflow-y-auto">
+        {filteredTokens.map((token) => {
+          const isSelected = selectedTokens.some(t => t.pubkey === token.pubkey);
+          const accountClosureValue = 0.00203928; // Value from closing the account
+          const tokenValueInSol = token.valueUsd && solToUsd ? token.valueUsd / solToUsd : 0;
+          const netAccountClosureSol = accountClosureValue * (1 - feePercentage);
+          const netAccountClosureUsd = (accountClosureValue * (solToUsd || 0)) * (1 - feePercentage);
+          const totalSol = (tokenValueInSol + accountClosureValue) * (1 - feePercentage);
+          const totalUsd = ((token.valueUsd || 0) + (accountClosureValue * (solToUsd || 0))) * (1 - feePercentage);
+          
+          return (
+            <div
+              key={token.pubkey}
+              className={`flex items-center justify-between p-3 rounded-lg border ${
+                isSelected ? 'border-purple-500 bg-purple-900/20' : 'border-gray-700'
+              }`}
             >
-              <div className="flex items-center mb-2">
-                <div 
-                  className="flex-shrink-0 w-6 h-6 mr-2"
-                  onClick={() => onToggleTokenSelection(token.pubkey)}
-                >
-                  <div className={`w-5 h-5 rounded border ${token.isSelected ? 'bg-purple-600/60 border-purple-400/50' : 'border-gray-500/50'} flex items-center justify-center cursor-pointer`}>
-                    {token.isSelected && (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                    )}
-                  </div>
-                </div>
-                <div className="flex-shrink-0 w-8 h-8 mr-3 bg-gray-800 rounded-full flex items-center justify-center">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => onToggleTokenSelection(token.pubkey)}
+                  className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                />
+                <div className="flex items-center gap-2">
                   {token.logoUrl ? (
-                    <Image 
-                      src={token.logoUrl} 
-                      alt={token.symbol || "Token"} 
-                      className="w-7 h-7 rounded-full"
-                      width={28}
-                      height={28}
-                      onError={(e) => {
-                        e.currentTarget.dataset.error = "true";
-                        const nextSibling = e.currentTarget.nextSibling as HTMLElement;
-                        if (nextSibling) nextSibling.style.display = 'block';
-                      }}
-                      style={{objectFit: "cover"}}
+                    <Image
+                      src={token.logoUrl}
+                      alt={token.symbol || 'Token'}
+                      width={24}
+                      height={24}
+                      className="rounded-full"
                     />
-                  ) : null}
-                  <span 
-                    className="text-xs font-bold text-white" 
-                    style={{display: token.logoUrl ? 'none' : 'block'}}
-                  >
-                    {token.symbol?.substring(0, 2) || "??"}
-                  </span>
-                </div>
-                <div 
-                  className="cursor-pointer flex-grow"
-                  onClick={() => onToggleTokenSelection(token.pubkey)}
-                >
-                  <div className="font-medium text-white truncate max-w-[180px]" title={token.name}>
-                    {token.name}
-                  </div>
-                  <div className="text-xs text-gray-300 flex items-center">
-                    <span className="mr-1">{token.symbol}</span>
-                    <span className="inline-flex items-center justify-center bg-purple-900/40 rounded-sm px-1">
-                      <span className="mr-1 w-2 h-2 rounded-full bg-green-500"></span>
-                      <span className="text-[10px]">Empty</span>
-                    </span>
+                  ) : (
+                    <div className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                      <span className="text-xs text-gray-400">
+                        {token.symbol?.slice(0, 2) || '??'}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-white">
+                        {token.symbol || 'Unknown Token'}
+                      </span>
+                      <button
+                        onClick={() => handleCopyAddress(token.mint)}
+                        className="text-gray-400 hover:text-white transition-colors"
+                        title="Copy token address"
+                      >
+                        {copiedAddress === token.mint ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                            <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                          </svg>
+                        )}
+                      </button>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {token.mint.slice(0, 6)}...{token.mint.slice(-4)}
+                    </div>
                   </div>
                 </div>
               </div>
-              <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-700/50">
-                <div className="text-xs text-gray-400">Token account</div>
+              
+              <div className="flex items-center gap-4">
                 <div className="text-right">
-                  <div className="text-sm font-bold text-green-400">0.00203928 SOL</div>
-                  <div className="text-[10px] text-gray-500 font-mono">
-                    {token.pubkey.substring(0, 6)}...{token.pubkey.substring(token.pubkey.length - 4)}
+                  <div className="text-sm text-gray-300">
+                    Token Value: ${token.valueUsd?.toFixed(2) || '0.00'}
+                  </div>
+                  <div className="text-sm text-purple-400">
+                    + {netAccountClosureSol.toFixed(8)} <SolanaLogo className="ml-1" />
+                    {solToUsd && (
+                      <span className="text-gray-400 ml-1">
+                        (${netAccountClosureUsd.toFixed(2)})
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm font-medium text-white">
+                    Total: {totalSol.toFixed(6)} <SolanaLogo className="ml-1" />
+                    {solToUsd && (
+                      <span className="text-gray-400 ml-1">
+                        (${totalUsd.toFixed(2)})
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
-          ))}
+          );
+        })}
       </div>
       
       {eligibleTokens.length > 6 && (

@@ -95,6 +95,12 @@ app.get('/api/health', (req: any, res: any) => {
   });
 });
 
+app.get('/api/fee-percentage', (req: any, res: any) => {
+  res.status(200).json({
+    feePercentage: FEE_PERCENTAGE
+  });
+});
+
 // New endpoint: Get multipliers and game configuration
 app.get('/api/multipliers', (req: any, res: any) => {
   // Get the multipliers from the provable fairness module

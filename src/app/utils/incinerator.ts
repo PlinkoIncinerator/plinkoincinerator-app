@@ -18,6 +18,7 @@ export interface TokenMetadata {
   symbol: string;
   image: string;
   mint: string;
+  priceUsd?: number;
 }
 
 // Cache for token metadata to avoid repeated API calls
@@ -44,12 +45,18 @@ export async function getTokenMetadata(mintAddress: string): Promise<TokenMetada
     const data = await response.json();
     
     if (!data || !data.pairs || data.pairs.length === 0) {
+      // If DexScreener has no data and token ends with 'pump', try Pump.fun API
+      if (mintAddress.toLowerCase().endsWith('pump')) {
+        console.log(`No DexScreener data found for ${mintAddress}, trying Pump.fun API`);
+        return await getPumpFunMetadata(mintAddress);
+      }
       console.log(`No DexScreener data found for ${mintAddress}`);
       throw new Error("No metadata found");
     }
     
     // Get the first pair data which contains token info
     const tokenData = data.pairs[0];
+    console.log("Debug: DexScreener token data:", tokenData);
     
     // Use the image URL from the info section if available
     let imageUrl = '';
@@ -60,11 +67,17 @@ export async function getTokenMetadata(mintAddress: string): Promise<TokenMetada
       imageUrl = `https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/${mintAddress}/logo.png`;
     }
     
+    // Get price in USD if available
+    // priceUsd is the price per token in USD
+    const priceUsd = tokenData.priceUsd ? parseFloat(tokenData.priceUsd) : undefined;
+    console.log(`Debug: Token ${mintAddress} price per token: $${priceUsd}`);
+    
     const result: TokenMetadata = {
       name: tokenData.baseToken.name || 'Unknown Token',
       symbol: tokenData.baseToken.symbol || '???',
       image: imageUrl,
       mint: mintAddress,
+      priceUsd: priceUsd
     };
     
     // Cache the result
@@ -73,8 +86,16 @@ export async function getTokenMetadata(mintAddress: string): Promise<TokenMetada
     return result;
   } catch (error) {
     console.error(`Error fetching metadata for ${mintAddress}:`, error);
-   
     
+    // If token ends with 'pump', try Pump.fun API as fallback
+    if (mintAddress.toLowerCase().endsWith('pump')) {
+      try {
+        return await getPumpFunMetadata(mintAddress);
+      } catch (pumpError) {
+        console.error(`Error fetching from Pump.fun API: ${pumpError}`);
+      }
+    }
+   
     // Fallback to basic metadata
     const fallbackMetadata: TokenMetadata = {
       name: `Token ${mintAddress.slice(0, 4)}...${mintAddress.slice(-4)}`,
@@ -87,6 +108,51 @@ export async function getTokenMetadata(mintAddress: string): Promise<TokenMetada
     tokenMetadataCache[mintAddress] = fallbackMetadata;
     return fallbackMetadata;
   }
+}
+
+// Function to fetch metadata from Pump.fun API
+async function getPumpFunMetadata(mintAddress: string): Promise<TokenMetadata> {
+  const url = `https://frontend-api-v3.pump.fun/coins/${mintAddress}`;
+  console.log(`Fetching metadata for ${mintAddress} from Pump.fun API`);
+  
+  const response = await fetch(url, {
+    headers: {
+      'Accept': '*/*',
+      'Accept-Language': 'en-US,en;q=0.5',
+      'Content-Type': 'application/json',
+      'Origin': 'https://pump.fun',
+      'Referer': 'https://pump.fun/',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0'
+    }
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to fetch from Pump.fun API: ${response.statusText}`);
+  }
+  
+  const data = await response.json();
+  console.log("Debug: Pump.fun token data:", data);
+  
+  // Calculate price per token in USD
+  // market_cap is in USD, total_supply is the total token supply
+  const priceUsd = data.market_cap && data.total_supply 
+    ? data.market_cap / (data.total_supply / Math.pow(10, 9)) // Convert from raw amount to actual tokens
+    : undefined;
+  
+  console.log(`Debug: Token ${mintAddress} price per token from Pump.fun: $${priceUsd}`);
+  
+  const result: TokenMetadata = {
+    name: data.name || `Token ${mintAddress.slice(0, 4)}...${mintAddress.slice(-4)}`,
+    symbol: data.symbol || '???',
+    image: data.image_uri || '',
+    mint: mintAddress,
+    priceUsd: priceUsd
+  };
+  
+  // Cache the result
+  tokenMetadataCache[mintAddress] = result;
+  console.log(`Cached Pump.fun metadata for ${mintAddress}:`, result);
+  return result;
 }
 
 // Batch fetch token metadata for multiple tokens
@@ -609,20 +675,86 @@ export async function incinerateTokens(
       
       // Skip accounts with non-zero balance
       if (data.tokenAmount.amount !== "0") {
-        console.log("Skipping", data.mint);
-        continue;
-      }
-      
-      console.log("Incinerating token:", data.mint);
-      closedCount++;
+        const amount = data.tokenAmount.amount; // in base units
+        const decimals = data.tokenAmount.decimals;
+        const amountInBaseUnits = parseInt(amount);
+        const inputMint = data.mint;
+        const outputMint = "So11111111111111111111111111111111111111112"; // SOL
 
-      incinerateInstructions.push(
-        createCloseAccountInstruction(
-          ata.pubkey,
-          Config.solWallet.publicKey,
-          Config.solWallet.publicKey
-        )
-      );
+        // Get Jupiter quote
+        const queryParams = new URLSearchParams({
+          inputMint: inputMint,
+          outputMint: outputMint,
+          amount: amountInBaseUnits.toString(),
+          slippageBps: '50'
+        }).toString();
+        
+        const quoteUrl = `https://lite-api.jup.ag/swap/v1/quote?${queryParams}`;
+        const quoteRes = await fetch(quoteUrl);
+        const quoteData = await quoteRes.json();
+        
+        // Check for Jupiter API errors
+        if (!quoteRes.ok || quoteData.errorCode === 'COULD_NOT_FIND_ANY_ROUTE' || quoteData.errorCode === 'TOKEN_NOT_TRADABLE') {
+          // If token ends with 'pump', check if value is irrelevant
+          if (data.mint.toLowerCase().endsWith('pump')) {
+            console.log(`Jupiter API error for ${data.mint}: ${quoteData.error || 'Unknown error'}`);
+            
+            // Check if token amount is very small (less than 0.000001 SOL worth)
+            const tokenAmount = parseFloat(data.tokenAmount.uiAmountString || '0');
+            if (tokenAmount < 0.000001) {
+              console.log(`Token ${data.mint} has negligible value (${tokenAmount}), proceeding with close account instruction`);
+              
+              // Add close account instruction
+              incinerateInstructions.push(
+                createCloseAccountInstruction(
+                  ata.pubkey,
+                  Config.solWallet.publicKey,
+                  Config.solWallet.publicKey
+                )
+              );
+              console.log("Incinerating token:", data.mint);
+              closedCount++;
+              continue;
+            }
+          }
+          console.log(`Skipping token ${data.mint} due to Jupiter API error: ${quoteData.error || 'Unknown error'}`);
+          continue; // skip if no route found and not a pump token
+        }
+
+        // Get swap instructions for successful Jupiter quote
+        const swapReq = {
+          quoteResponse: quoteData,
+          userPublicKey: Config.solWallet.publicKey.toString(),
+          wrapUnwrapSOL: true
+        };
+        const swapRes = await fetch("https://lite-api.jup.ag/swap/v1/swap-instructions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(swapReq)
+        });
+        if (!swapRes.ok) continue; // skip if Jupiter fails
+        const swapInstructions = await swapRes.json();
+
+        // Add all Jupiter instructions to your transaction
+        for (const ix of [
+          ...(swapInstructions.setupInstructions || []),
+          swapInstructions.swapInstruction,
+          ...(swapInstructions.cleanupInstruction ? [swapInstructions.cleanupInstruction] : [])
+        ]) {
+          incinerateInstructions.push(ix);
+        }
+
+        // Add close account instruction after swap
+        incinerateInstructions.push(
+          createCloseAccountInstruction(
+            ata.pubkey,
+            Config.solWallet.publicKey,
+            Config.solWallet.publicKey
+          )
+        );
+        console.log("Incinerating token:", data.mint);
+        closedCount++;
+      }
     }
     
     if (closedCount === 0) {
@@ -671,6 +803,7 @@ export async function incinerateTokens(
         const connection = await dynamicWallet.getConnection();
         const blockhash = await connection.getLatestBlockhash();
         
+        console.log(incinerateInstructions);
         // Create the transaction message
         const messageV0 = new TransactionMessage({
           instructions: incinerateInstructions,

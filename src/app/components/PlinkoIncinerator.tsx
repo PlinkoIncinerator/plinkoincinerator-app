@@ -11,9 +11,10 @@ import { trackPlinkoEvent, ANALYTICS_EVENTS } from '../utils/analytics';
 import Image from "next/image";
 import IncineratorActions from './IncineratorActions';
 import TokenList from './TokenList';
+import AmountSlider from './AmountSlider';
 
 // Create a reusable component for the Solana logo
-const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
+export const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
   return (
     <Image 
       src="/solana-logo.svg" 
@@ -40,6 +41,7 @@ interface FormattedTokenAccount {
   isEligible?: boolean;
   isProcessed?: boolean;
   potentialValue?: number;
+  valueUsd?: number;
 }
 
 // Game states
@@ -72,36 +74,46 @@ export default function PlinkoIncinerator() {
   } | null>(null);
   const [incinerationMode, setIncinerationMode] = useState<'withdraw' | 'gamble' | null>(null);
   const [incinerationOptionsVisible, setIncinerationOptionsVisible] = useState(false);
+  const [maxTokenValue, setMaxTokenValue] = useState<number>(0.1); // Default max value in SOL
+  const [solToUsd, setSolToUsd] = useState<number | null>(null);
+  const [feePercentage, setFeePercentage] = useState<number>(0.021); // Default to 2.1%
 
   // Clear any existing error messages on component mount
   useEffect(() => {
     setLoadingMessage('');
   }, []);
 
-  // Use a ref for fetchTokenMetadata to avoid dependency issues
-  const fetchTokenMetadataRef = useRef(async (accounts: FormattedTokenAccount[]) => {
-    try {
-      if (accounts.length === 0) return;
-      
-      const mintAddresses = accounts.map(account => account.mint);
-      const metadata = await batchGetTokenMetadata(mintAddresses);
-      
-      // Update accounts with metadata
-      const updatedAccounts = accounts.map(account => ({
-        ...account,
-        name: metadata[account.mint]?.name || `Token ${account.mint.slice(0, 6)}...${account.mint.slice(-4)}`,
-        symbol: metadata[account.mint]?.symbol || account.mint.slice(0, 4).toUpperCase(),
-        logoUrl: metadata[account.mint]?.image || '',
-        isSelected: account.isEligible // Set eligible tokens as selected by default
-      }));
-      
-      setTokenAccounts(updatedAccounts);
-      addDebugMessage('Token metadata updated');
-    } catch (error) {
-      addDebugMessage(`Error fetching token metadata: ${error}`);
-      console.error('Error fetching token metadata:', error);
-    }
-  });
+  // Fetch SOL price in USD and fee percentage
+  useEffect(() => {
+    const fetchSolPriceAndFee = async () => {
+      try {
+        const [solRes, feeRes] = await Promise.all([
+          fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd'),
+          fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/fee-wallet`)
+        ]);
+        let solPrice = 20;
+        if (solRes.ok) {
+          const data = await solRes.json();
+          solPrice = data.solana.usd;
+          setSolToUsd(solPrice);
+          addDebugMessage(`SOL price: $${solPrice}`);
+        }
+        if (feeRes.ok) {
+          const data = await feeRes.json();
+          if (typeof data.feePercentage === 'number') {
+            setFeePercentage(data.feePercentage);
+            addDebugMessage(`Fee percentage: ${(data.feePercentage * 100).toFixed(2)}%`);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching SOL price or fee percentage:', err);
+        setSolToUsd(20);
+        setFeePercentage(0.021);
+        addDebugMessage('Failed to fetch SOL price or fee, using fallback values');
+      }
+    };
+    fetchSolPriceAndFee();
+  }, []);
 
   // Function to add debug messages
   const addDebugMessage = (message: string) => {
@@ -183,70 +195,72 @@ export default function PlinkoIncinerator() {
         setGameState('ready');
         return;
       }
-      
-      // Format and filter token accounts
+
+      // First, format the accounts with basic info
       const formattedAccounts = accounts
         .map((account: { pubkey: { toString: () => string; }; account: { data: { parsed: { info: any; }; }; }; }) => {
           try {
             const data = account.account.data.parsed.info;
-            const isEligible = data.tokenAmount.amount === "0";
-            const mintAddress = data.mint;
-            
-            // Track scanned mints
-            setScannedMints(prev => [...prev, mintAddress]);
+            const tokenAmountFloat = parseFloat(data.tokenAmount.amount) / Math.pow(10, data.tokenAmount.decimals);
+            const isEmptyAccount = data.tokenAmount.amount === "0";
             
             return {
               pubkey: account.pubkey.toString(),
-              mint: mintAddress,
+              mint: data.mint,
               owner: data.owner,
               amount: parseInt(data.tokenAmount.amount),
               decimals: data.tokenAmount.decimals,
               uiAmount: data.tokenAmount.uiAmount,
-              isEligible,
-              isSelected: isEligible, // Auto-select eligible tokens
-              potentialValue: isEligible ? 0.00203928 * (1 - Config.FEE_PERCENTAGE) : 0 // 85% of value after fee
+              valueUsd: 0, // Will be updated with DEX price
+              isEligible: false, // Will be updated after price check
+              isSelected: false, // Will be updated after price check
+              potentialValue: 0 // Will be updated after price check
             };
           } catch (err) {
-            // Skip malformed accounts
             addDebugMessage(`Error parsing account: ${err}`);
             return null;
           }
         })
         .filter(Boolean) as FormattedTokenAccount[];
-        
-      setTokenAccounts(formattedAccounts);
-      setScanProgress(85);
-      
-      // Update selected tokens
-      const eligibleTokenPubkeys = formattedAccounts
-        .filter(account => account.isEligible)
-        .map(account => account.pubkey);
-      
-      // Set eligible tokens as selected by default (instead of using setSelectedTokens)
-      setTokenAccounts(prev => prev.map(account => {
-        if (eligibleTokenPubkeys.includes(account.pubkey)) {
-          return {
-            ...account,
-            isSelected: true
-          };
-        }
-        return account;
-      }));
-      
-      // Calculate potential value
-      const totalPotentialValue = formattedAccounts
-        .filter((account: FormattedTokenAccount) => account.isEligible)
-        .reduce((total: number, account: FormattedTokenAccount) => total + (account.potentialValue || 0), 0);
-        
-      const feeAmount = totalPotentialValue * Config.FEE_PERCENTAGE;
-      const potentialSol = totalPotentialValue - feeAmount; // 85% goes to user
-      
-      addDebugMessage(`Potential value from eligible tokens: ${potentialSol} SOL`);
-      
-      // Fetch token metadata
-      setLoadingMessage('Fetching token metadata...');
+
+      // Then fetch metadata and prices for all tokens
+      setLoadingMessage('Fetching token prices...');
       setScanStage('metadata');
-      await fetchTokenMetadataRef.current(formattedAccounts);
+      
+      const mintAddresses = formattedAccounts.map(account => account.mint);
+      const metadata = await batchGetTokenMetadata(mintAddresses);
+      
+      // Update accounts with prices and calculate eligibility
+      const updatedAccounts = formattedAccounts.map(account => {
+        const tokenMetadata = metadata[account.mint];
+        const tokenAmountFloat = account.amount / Math.pow(10, account.decimals);
+        
+        // Get DEX price if available
+        const dexPriceUsd = tokenMetadata?.priceUsd;
+        console.log(`Debug: Token ${account.mint} amount: ${tokenAmountFloat}, price: $${dexPriceUsd}`);
+        
+        // Calculate total value
+        const tokenValueUsd = dexPriceUsd ? tokenAmountFloat * dexPriceUsd : 0;
+        console.log(`Debug: Token ${account.mint} total value: $${tokenValueUsd}`);
+        
+        // Check eligibility based on value
+        const maxValueInUsd = maxTokenValue * (solToUsd || 20);
+        const isEligible = account.amount === 0 || tokenValueUsd <= maxValueInUsd;
+        
+        return {
+          ...account,
+          name: tokenMetadata?.name || `Token ${account.mint.slice(0, 6)}...${account.mint.slice(-4)}`,
+          symbol: tokenMetadata?.symbol || account.mint.slice(0, 4).toUpperCase(),
+          logoUrl: tokenMetadata?.image || '',
+          valueUsd: tokenValueUsd,
+          isEligible,
+          isSelected: isEligible,
+          potentialValue: isEligible ? 0.00203928 * (1 - feePercentage) : 0
+        };
+      });
+      
+      setTokenAccounts(updatedAccounts);
+      addDebugMessage('Token prices and eligibility updated');
       
       setScanProgress(100);
       setScanStage('done');
@@ -256,12 +270,10 @@ export default function PlinkoIncinerator() {
       console.error('Error fetching token accounts:', error);
       
       if (!primaryWallet || !primaryWallet.address) {
-        // If wallet is disconnected during fetch, don't show an error
         setLoadingMessage('');
         return;
       }
       
-      // Show a retry button by setting specific state
       const errorMessage = String(error);
       if (errorMessage.includes('timeout') || errorMessage.includes('Timeout')) {
         setLoadingMessage('Connection timeout. The Solana network may be experiencing high load.');
@@ -279,7 +291,7 @@ export default function PlinkoIncinerator() {
     } finally {
       setLoading(false);
     }
-  }, [primaryWallet]);
+  }, [primaryWallet, maxTokenValue, solToUsd, feePercentage]);
 
   // Reset states when wallet changes
   useEffect(() => {
@@ -352,14 +364,14 @@ export default function PlinkoIncinerator() {
     
     // Calculate potential value for all selected tokens
     const totalPotentialValue = eligibleTokens.length * 0.00203928;
-    const feeAmount = totalPotentialValue * Config.FEE_PERCENTAGE;
+    const feeAmount = totalPotentialValue * feePercentage;
     const userValue = totalPotentialValue - feeAmount; // 85% goes to user
 
     // Calculate value for the first batch (max 15 accounts)
     const maxAccountsPerBatch = 15;
     const firstBatchCount = Math.min(eligibleTokens.length, maxAccountsPerBatch);
     const firstBatchValue = firstBatchCount * 0.00203928;
-    const firstBatchUserValue = firstBatchValue * (1 - Config.FEE_PERCENTAGE);
+    const firstBatchUserValue = firstBatchValue * (1 - feePercentage);
     const hasMultipleBatches = eligibleTokens.length > maxAccountsPerBatch;
 
     addDebugMessage(`Showing incineration options: Direct withdrawal (${userValue.toFixed(6)} SOL) or Gambling (${totalPotentialValue.toFixed(6)} SOL)`);
@@ -477,11 +489,11 @@ export default function PlinkoIncinerator() {
       const totalValue = result.totalAmount || (accountsToProcess.length * 0.00203928);
       
       // Apply the fee
-      const feeAmount = totalValue * Config.FEE_PERCENTAGE;
+      const feeAmount = totalValue * feePercentage;
       const userValue = totalValue - feeAmount; // User gets value after fee
       
       if (incinerationMode === 'withdraw') {
-        addDebugMessage(`Incinerated ${accountsToProcess.length} tokens for direct withdrawal of ${userValue.toFixed(6)} SOL (after ${Config.FEE_PERCENTAGE * 100}% fee)`);
+        addDebugMessage(`Incinerated ${accountsToProcess.length} tokens for direct withdrawal of ${userValue.toFixed(6)} SOL (after ${feePercentage * 100}% fee)`);
       } else {
         addDebugMessage(`Incinerated ${accountsToProcess.length} tokens for gambling with ${totalValue.toFixed(6)} SOL`);
       }
@@ -656,15 +668,21 @@ export default function PlinkoIncinerator() {
   const selectedTokens = tokenAccounts.filter(account => account.isEligible && account.isSelected);
   
   // Calculate potential SOL from burning tokens
-  const totalPotentialValue = selectedTokens.length * 0.00203928;
-  const feeAmount = totalPotentialValue * Config.FEE_PERCENTAGE;
-  const potentialSol = totalPotentialValue - feeAmount; // 85% goes to user
+  const totalPotentialValue = selectedTokens.reduce((total, token) => {
+    // Convert token USD value to SOL and add account closure value
+    const tokenValueInSol = token.valueUsd && solToUsd ? token.valueUsd / solToUsd : 0;
+    const accountClosureValue = 0.00203928;
+    return total + tokenValueInSol + accountClosureValue;
+  }, 0);
+
+  const feeAmount = totalPotentialValue * feePercentage;
+  const potentialSol = totalPotentialValue - feeAmount; // net to user
 
   // Calculate if we need to process in batches
   const maxAccountsPerBatch = 15;
   const needsBatching = selectedTokens.length > maxAccountsPerBatch;
   const batchCount = needsBatching ? Math.ceil(selectedTokens.length / maxAccountsPerBatch) : 1;
-  const firstBatchValue = Math.min(selectedTokens.length, maxAccountsPerBatch) * 0.00203928 * (1 - Config.FEE_PERCENTAGE);
+  const firstBatchValue = Math.min(selectedTokens.length, maxAccountsPerBatch) * 0.00203928 * (1 - feePercentage);
 
   // Listen for the custom close-token-list event from the TokenList component
   useEffect(() => {
@@ -678,6 +696,12 @@ export default function PlinkoIncinerator() {
       window.removeEventListener('close-token-list', handleCloseTokenList);
     };
   }, []);
+
+  // Handle max token value change from the slider
+  const handleMaxValueChange = (value: number) => {
+    setMaxTokenValue(value);
+    addDebugMessage(`Max token value set to ${value} SOL (approx. $${(value * (solToUsd || 20)).toFixed(2)})`);
+  };
 
   return (
     <div className="space-y-6">
@@ -761,15 +785,25 @@ export default function PlinkoIncinerator() {
         {!loading && primaryWallet && gameState === 'idle' && (
           <div className="flex flex-col items-center justify-center p-4 gap-4">
             <p className="text-center text-blue-400">
-              {loadingMessage || 'Ready to scan for empty token accounts'}
+              {loadingMessage || 'Ready to scan for tokens below value threshold'}
             </p>
+            
+            {/* Add AmountSlider to set max token value */}
+            <div className="w-full max-w-md">
+              <AmountSlider 
+                onChange={handleMaxValueChange} 
+                initialAmount={maxTokenValue}
+              />
+            </div>
+            
             <div className="flex flex-col md:flex-row gap-3">
               <button
                 onClick={() => {
                   setLoadingMessage(''); // Clear any existing error message
                   setLoading(true);
                   setGameState('scanning');
-                  setLoadingMessage('Scanning for tokens...');
+                  const maxValueInUsd = maxTokenValue * (solToUsd || 20);
+                  setLoadingMessage(`Scanning for tokens with value below $${maxValueInUsd.toFixed(2)}...`);
                   fetchTokenAccounts();
                 }}
                 className="bg-gradient-to-r from-purple-800 via-pink-700 to-blue-800 hover:from-purple-700 hover:via-pink-600 hover:to-blue-700 text-white py-2 px-6 rounded-lg transition-all hover:scale-105 shadow-md text-base font-medium flex items-center justify-center gap-2"
@@ -790,25 +824,31 @@ export default function PlinkoIncinerator() {
           <div className="mt-4">
             <div className="flex flex-col md:flex-row justify-between items-center gap-4 p-4 bg-gray-900 bg-opacity-60 rounded-lg">
               <div>
-                <p className="text-sm text-gray-300 mb-1">Empty Token Accounts Found:</p>
-                <p className="text-xl font-bold text-accent-green">{eligibleTokens.length} accounts</p>
+                <p className="text-sm text-gray-300 mb-1">Selected Tokens:</p>
+                <p className="text-xl font-bold text-accent-green">{selectedTokens.length} of {eligibleTokens.length} eligible</p>
               </div>
-              
               <div>
                 <p className="text-sm text-gray-300 mb-1">Potential Value:</p>
-                <p className="text-xl font-bold text-accent-blue glow-pulse px-3 py-1 rounded">{potentialSol.toFixed(6)} SOL</p>
+                <p className="text-xl font-bold text-accent-blue glow-pulse px-3 py-1 rounded">
+                  {potentialSol.toFixed(6)} <SolanaLogo className="ml-1" />
+                  {solToUsd && (
+                    <span className="text-gray-400 ml-2">
+                      (${(potentialSol * solToUsd).toFixed(2)})
+                    </span>
+                  )}
+                </p>
                 {needsBatching && (
                   <p className="text-xs text-yellow-400 mt-1">
                     Will be processed in {batchCount} batches of 15 accounts max
                   </p>
                 )}
               </div>
-              
-              {!incinerationOptionsVisible && eligibleTokens.length > 0 && (
+
+              {!incinerationOptionsVisible && selectedTokens.length > 0 && (
                 <button
                   onClick={handleShowIncinerateOptions}
-                  disabled={eligibleTokens.length === 0 || loading}
-                  className={`shine-border py-2 px-6 ${eligibleTokens.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedTokens.length === 0 || loading}
+                  className={`shine-border py-2 px-6 ${selectedTokens.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <div className="bg-gray-900 p-2 rounded flex items-center justify-center">
                     <span className="flame-animation text-accent-red font-bold">🔥 INCINERATE TOKENS 🔥</span>
@@ -848,6 +888,8 @@ export default function PlinkoIncinerator() {
                     onTokenSearchChange={setTokenSearch}
                     onToggleTokenSelection={toggleTokenSelection}
                     onToggleAllTokens={toggleAllTokens}
+                    solToUsd={solToUsd}
+                    feePercentage={feePercentage}
                   />
                 )}
               </div>
