@@ -26,12 +26,16 @@ async function checkJupiterSwapAvailability(mintAddress: string): Promise<boolea
       amount: testAmount,
       slippageBps: '100'
     }).toString();
+
+    console.log("Making Jupiter API call with queryParams:", queryParams);
     
     const quoteUrl = `https://lite-api.jup.ag/swap/v1/quote?${queryParams}`;
     console.log(`Checking swap availability for ${mintAddress}`);
     
     const response = await fetch(quoteUrl);
+    console.log("Response:", response);
     const data = await response.json();
+    console.log("Data:", data);
     
     // If Jupiter can find a route, verify there's enough liquidity
     if (response.ok && !data.errorCode && !data.error) {
@@ -40,10 +44,8 @@ async function checkJupiterSwapAvailability(mintAddress: string): Promise<boolea
       // Check for minimum output amount to confirm real liquidity
       // Jupiter returns outAmount in lamports (SOL's smallest unit)
       const outAmount = data.outAmount ? parseInt(data.outAmount) : 0;
-      const outAmountInSol = outAmount / 1_000_000_000; // Convert lamports to SOL
+      const outAmountInSol = outAmount; // Convert lamports to SOL
 
-      console.log("outAmountInSol", outAmountInSol);
-      console.log("data", data);
       
       // If output amount is extremely low (like 0.000001 SOL), it likely means there's 
       // not enough liquidity to make a meaningful swap

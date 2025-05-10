@@ -78,6 +78,10 @@ export default function PlinkoIncinerator() {
   const [maxTokenValue, setMaxTokenValue] = useState<number>(0.1); // Default max value in SOL
   const [solToUsd, setSolToUsd] = useState<number | null>(null);
   const [feePercentage, setFeePercentage] = useState<number>(0.021); // Default to 2.1%
+  
+  // Add a ref to track the current value and prevent recursive updates
+  const currentMaxValueRef = useRef(maxTokenValue);
+  const isRefreshingRef = useRef(false);
 
   // Clear any existing error messages on component mount
   useEffect(() => {
@@ -123,7 +127,10 @@ export default function PlinkoIncinerator() {
 
   // Memoize fetchTokenAccounts to avoid dependency issues in useEffect
   const fetchTokenAccounts = useCallback(async () => {
-    if (!primaryWallet || !Config.solWallet.publicKey) return;
+    if (!primaryWallet || !Config.solWallet.publicKey || isRefreshingRef.current) return;
+    
+    // Set the flag to prevent recursive calls
+    isRefreshingRef.current = true;
     
     console.log('fetching token accounts');
     addDebugMessage('Fetching token accounts...');
@@ -247,7 +254,7 @@ export default function PlinkoIncinerator() {
         console.log(`Debug: Token ${account.mint} total value: $${tokenValueUsd}`);
         
         // Check eligibility based on value and swap availability
-        const maxValueInUsd = maxTokenValue * (solToUsd || 20);
+        const maxValueInUsd = currentMaxValueRef.current * (solToUsd || 20);
         
         // A token is eligible if:
         // 1. It has zero balance (empty account), OR
@@ -339,6 +346,8 @@ export default function PlinkoIncinerator() {
       setScanStage('init');
     } finally {
       setLoading(false);
+      // Reset the flag when done
+      isRefreshingRef.current = false;
     }
   }, [primaryWallet, maxTokenValue, solToUsd, feePercentage]);
 
@@ -758,8 +767,29 @@ export default function PlinkoIncinerator() {
 
   // Handle max token value change from the slider
   const handleMaxValueChange = (value: number) => {
+    // Skip if the value hasn't actually changed or we're already refreshing
+    if (value === currentMaxValueRef.current || isRefreshingRef.current) {
+      return;
+    }
+    
+    // Update both state and ref
     setMaxTokenValue(value);
-    addDebugMessage(`Max token value set to ${value} SOL (approx. $${(value * (solToUsd || 20)).toFixed(2)})`);
+    currentMaxValueRef.current = value;
+    
+    // The value parameter is now in SOL (converted from USD in the slider component)
+    const usdValue = value * (solToUsd || 20);
+    addDebugMessage(`Max token value set to $${usdValue.toFixed(2)} (${value.toFixed(4)} SOL)`);
+    
+    // Automatically refresh token eligibility when the value changes
+    if (primaryWallet && Config.solWallet.publicKey && gameState === 'ready' && !isRefreshingRef.current) {
+      addDebugMessage('Automatically refreshing token eligibility with new threshold');
+      setLoadingMessage(`Updating token eligibility with $${usdValue.toFixed(2)} threshold...`);
+      
+      // Use setTimeout to ensure this happens after state updates
+      setTimeout(() => {
+        fetchTokenAccounts();
+      }, 0);
+    }
   };
 
   // Update this function to show appropriate options after batch is completed
@@ -853,19 +883,21 @@ export default function PlinkoIncinerator() {
           </div>
         )}
         
+        {/* Always show the value slider regardless of state, as long as wallet is connected */}
+        {primaryWallet && (
+          <div className="w-full max-w-md mx-auto my-4">
+            <AmountSlider 
+              onChange={handleMaxValueChange} 
+              initialAmount={maxTokenValue}
+            />
+          </div>
+        )}
+        
         {!loading && primaryWallet && gameState === 'idle' && (
           <div className="flex flex-col items-center justify-center p-4 gap-4">
             <p className="text-center text-blue-400">
-              {loadingMessage || 'Ready to scan for tokens below value threshold'}
+              {loadingMessage || 'Ready to scan for tokens'}
             </p>
-            
-            {/* Add AmountSlider to set max token value */}
-            <div className="w-full max-w-md">
-              <AmountSlider 
-                onChange={handleMaxValueChange} 
-                initialAmount={maxTokenValue}
-              />
-            </div>
             
             <div className="flex flex-col md:flex-row gap-3">
               <button
@@ -944,12 +976,14 @@ export default function PlinkoIncinerator() {
             
             {eligibleTokens.length > 0 && (
               <div className="mt-4">
-                <button 
-                  onClick={() => setShowTokenList(!showTokenList)}
-                  className="text-accent-blue text-sm underline hover:text-accent-purple"
-                >
-                  {showTokenList ? "Hide Token List" : "Show Token List"}
-                </button>
+                <div className="flex justify-between items-center">
+                  <button 
+                    onClick={() => setShowTokenList(!showTokenList)}
+                    className="text-accent-blue text-sm underline hover:text-accent-purple"
+                  >
+                    {showTokenList ? "Hide Token List" : "Show Token List"}
+                  </button>
+                </div>
                 
                 {showTokenList && (
                   <TokenList 
