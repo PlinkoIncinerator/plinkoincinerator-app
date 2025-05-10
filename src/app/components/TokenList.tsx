@@ -7,6 +7,7 @@ import { SolanaLogo } from './PlinkoIncinerator';
 interface TokenListProps {
   eligibleTokens: TokenAccount[];
   selectedTokens: TokenAccount[];
+  processedTokens?: TokenAccount[];
   tokenSearch: string;
   onTokenSearchChange: (value: string) => void;
   onToggleTokenSelection: (pubkey: string) => void;
@@ -30,11 +31,13 @@ interface TokenAccount {
   isProcessed?: boolean;
   potentialValue?: number;
   valueUsd?: number;
+  hasSwapRoutes?: boolean;
 }
 
 export default function TokenList({
   eligibleTokens,
   selectedTokens,
+  processedTokens = [],
   tokenSearch,
   onTokenSearchChange,
   onToggleTokenSelection,
@@ -54,7 +57,7 @@ export default function TokenList({
     }
   };
 
-  const filteredTokens = eligibleTokens.filter(token => {
+  const filteredEligibleTokens = eligibleTokens.filter(token => {
     const searchLower = tokenSearch.toLowerCase();
     return (
       token.name?.toLowerCase().includes(searchLower) ||
@@ -62,6 +65,17 @@ export default function TokenList({
       token.mint.toLowerCase().includes(searchLower)
     );
   });
+
+  const filteredProcessedTokens = processedTokens.filter(token => {
+    const searchLower = tokenSearch.toLowerCase();
+    return (
+      token.name?.toLowerCase().includes(searchLower) ||
+      token.symbol?.toLowerCase().includes(searchLower) ||
+      token.mint.toLowerCase().includes(searchLower)
+    );
+  });
+
+  const allFilteredTokens = [...filteredEligibleTokens, ...filteredProcessedTokens];
 
   return (
     <div className="mt-4 max-h-96 overflow-y-auto p-4 bg-gray-950 bg-opacity-95 rounded-lg border border-gray-800/50 shadow-xl">
@@ -148,8 +162,9 @@ export default function TokenList({
       </div>
       
       <div className="space-y-2 max-h-[400px] overflow-y-auto">
-        {filteredTokens.map((token) => {
+        {allFilteredTokens.map((token) => {
           const isSelected = selectedTokens.some(t => t.pubkey === token.pubkey);
+          const isProcessed = token.isProcessed;
           const accountClosureValue = 0.00203928; // Value from closing the account
           const tokenValueInSol = token.valueUsd && solToUsd ? token.valueUsd / solToUsd : 0;
           const netAccountClosureSol = accountClosureValue * (1 - feePercentage);
@@ -161,6 +176,7 @@ export default function TokenList({
             <div
               key={token.pubkey}
               className={`flex items-center justify-between p-3 rounded-lg border ${
+                isProcessed ? 'border-green-500 bg-green-900/10' : 
                 isSelected ? 'border-purple-500 bg-purple-900/20' : 'border-gray-700'
               }`}
             >
@@ -169,8 +185,15 @@ export default function TokenList({
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => onToggleTokenSelection(token.pubkey)}
-                  className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                  disabled={isProcessed}
+                  className={`w-4 h-4 rounded focus:ring-purple-500 ${isProcessed ? 'opacity-50 cursor-not-allowed' : 'text-purple-600'}`}
                 />
+                {isProcessed && (
+                  <span className="text-xs bg-green-800 text-green-200 px-2 py-0.5 rounded-md">
+                    Processed
+                  </span>
+                )}
+                
                 <div className="flex items-center gap-2">
                   {token.logoUrl ? (
                     <Image
@@ -220,6 +243,11 @@ export default function TokenList({
                 <div className="text-right">
                   <div className="text-sm text-gray-300">
                     Token Value: ${token.valueUsd?.toFixed(2) || '0.00'}
+                    {(token.valueUsd ?? 0) > 0 && !token.hasSwapRoutes && (
+                      <span className="ml-1 text-xs text-amber-400 bg-amber-900/30 px-1.5 py-0.5 rounded">
+                        No Liquidity
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm text-purple-400">
                     + {netAccountClosureSol.toFixed(8)} <SolanaLogo className="ml-1" />
@@ -237,6 +265,12 @@ export default function TokenList({
                       </span>
                     )}
                   </div>
+                  
+                  {(token.valueUsd ?? 0) > 0 && !token.hasSwapRoutes && (
+                    <div className="text-xs text-amber-400 mt-1">
+                      Insufficient liquidity for swapping
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

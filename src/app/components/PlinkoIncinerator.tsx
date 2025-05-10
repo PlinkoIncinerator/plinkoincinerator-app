@@ -42,6 +42,7 @@ interface FormattedTokenAccount {
   isProcessed?: boolean;
   potentialValue?: number;
   valueUsd?: number;
+  hasSwapRoutes?: boolean;
 }
 
 // Game states
@@ -181,6 +182,8 @@ export default function PlinkoIncinerator() {
           }, 25000); // 25 second timeout for the token accounts fetch
         })
       ]);
+
+      console.log("accounts", accounts);
       
       setScanProgress(75);
       
@@ -243,9 +246,28 @@ export default function PlinkoIncinerator() {
         const tokenValueUsd = dexPriceUsd ? tokenAmountFloat * dexPriceUsd : 0;
         console.log(`Debug: Token ${account.mint} total value: $${tokenValueUsd}`);
         
-        // Check eligibility based on value
+        // Check eligibility based on value and swap availability
         const maxValueInUsd = maxTokenValue * (solToUsd || 20);
-        const isEligible = account.amount === 0 || tokenValueUsd <= maxValueInUsd;
+        
+        // A token is eligible if:
+        // 1. It has zero balance (empty account), OR
+        // 2. It has no swap routes available (regardless of reported value), OR
+        // 3. Its value is below the max threshold
+
+        console.log("tokenMetadata", tokenMetadata);
+      
+        const hasNoSwapRoutes = tokenMetadata?.hasSwapRoutes === false;
+        const isEligible = account.amount === 0 || hasNoSwapRoutes || tokenValueUsd <= maxValueInUsd;
+
+        console.log("hasNoSwapRoutes", hasNoSwapRoutes);
+        console.log("isEligible", isEligible);
+        console.log("account.amount", account.amount);
+        console.log("tokenValueUsd", tokenValueUsd);
+        console.log("maxValueInUsd", maxValueInUsd);
+
+        if (hasNoSwapRoutes && tokenValueUsd > 0) {
+          console.log(`Token ${account.mint} has reported value of $${tokenValueUsd.toFixed(2)} but insufficient liquidity - marking as eligible for burning`);
+        }
         
         return {
           ...account,
@@ -253,13 +275,40 @@ export default function PlinkoIncinerator() {
           symbol: tokenMetadata?.symbol || account.mint.slice(0, 4).toUpperCase(),
           logoUrl: tokenMetadata?.image || '',
           valueUsd: tokenValueUsd,
+          hasSwapRoutes: tokenMetadata?.hasSwapRoutes || false,
           isEligible,
           isSelected: isEligible,
           potentialValue: isEligible ? 0.00203928 * (1 - feePercentage) : 0
         };
       });
       
-      setTokenAccounts(updatedAccounts);
+      // Preserve processed tokens when refreshing
+      setTokenAccounts(prevTokens => {
+        // Create a map of existing processed tokens by mint address
+        const processedTokenMap = new Map();
+        prevTokens.forEach(token => {
+          if (token.isProcessed) {
+            processedTokenMap.set(token.mint, token);
+          }
+        });
+        
+        // Merge processed tokens with newly fetched ones, preferring processed tokens
+        return updatedAccounts.map(newToken => {
+          const existingProcessed = processedTokenMap.get(newToken.mint);
+          if (existingProcessed) {
+            // Keep the processed token's state but update any relevant fields
+            return {
+              ...existingProcessed,
+              // Update any fields that might have changed
+              amount: newToken.amount,
+              uiAmount: newToken.uiAmount,
+              valueUsd: newToken.valueUsd,
+              isRefreshing: false
+            };
+          }
+          return newToken;
+        });
+      });
       addDebugMessage('Token prices and eligibility updated');
       
       setScanProgress(100);
@@ -584,20 +633,23 @@ export default function PlinkoIncinerator() {
             );
           }
           
-          // Refresh the token list to show updated eligibility state
-          if (hasMoreBatches) {
-            // If there are more tokens to process, keep the incineration options visible
-            // but update them to reflect the remaining tokens
-            setTimeout(() => {
-              setIncinerationOptionsVisible(false);
-              setIncinerationMode(null);
-              setLoading(false);
-              setLoadingMessage('');
-            }, 5000);
-          } else {
-            // Close the UI after a delay for user to read the message
-            setTimeout(() => setLoadingMessage(''), 3000);
-          }
+          // If there are more tokens to process, keep the incineration options visible
+          // but update them to reflect the remaining tokens
+          setTimeout(() => {
+            setIncinerationOptionsVisible(false);
+            setIncinerationMode(null);
+            setLoading(false);
+            setLoadingMessage('');
+            
+            // If we still have remaining tokens, show a message prompting user to continue processing
+            if (hasMoreBatches) {
+              setLoadingMessage(`You have ${eligibleTokens.length - maxAccountsPerBatch} more tokens to process!`);
+              setTimeout(() => {
+                setLoadingMessage('');
+                showIncinerationOptionsForRemainingTokens();
+              }, 3000);
+            }
+          }, 5000);
         } else {
           addDebugMessage(`Server verification failed: ${verifyResult.message}`);
           setLoadingMessage(`Server verification failed: ${verifyResult.message}`);
@@ -654,18 +706,25 @@ export default function PlinkoIncinerator() {
   const refreshTokens = () => {
     if (!primaryWallet || !Config.solWallet.publicKey) return;
     addDebugMessage('Manually refreshing token accounts');
-    setTokenAccounts([]);
+    // Instead of clearing the tokens completely, mark them as being refreshed
+    setLoadingMessage('Refreshing token accounts...');
+    setTokenAccounts(prevTokens => prevTokens.map(token => ({
+      ...token,
+      isRefreshing: true
+    })));
     setScannedMints([]);
     setScanProgress(0);
     setScanStage('init');
-    // Clear any existing error messages before scanning
-    setLoadingMessage('');
     fetchTokenAccounts();
   };
 
   // Filter eligible tokens
   const eligibleTokens = tokenAccounts.filter(account => account.isEligible);
   const selectedTokens = tokenAccounts.filter(account => account.isEligible && account.isSelected);
+  const processedTokens = tokenAccounts.filter(account => account.isProcessed);
+  
+  // Show processed tokens in the UI but mark them differently
+  const allDisplayTokens = [...eligibleTokens, ...processedTokens];
   
   // Calculate potential SOL from burning tokens
   const totalPotentialValue = selectedTokens.reduce((total, token) => {
@@ -701,6 +760,18 @@ export default function PlinkoIncinerator() {
   const handleMaxValueChange = (value: number) => {
     setMaxTokenValue(value);
     addDebugMessage(`Max token value set to ${value} SOL (approx. $${(value * (solToUsd || 20)).toFixed(2)})`);
+  };
+
+  // Update this function to show appropriate options after batch is completed
+  const showIncinerationOptionsForRemainingTokens = () => {
+    // Count remaining eligible tokens that are still selected
+    const remainingTokens = tokenAccounts.filter(account => account.isEligible && account.isSelected);
+    
+    if (remainingTokens.length > 0) {
+      // Show options for remaining tokens
+      setIncinerationOptionsVisible(true);
+      addDebugMessage(`Showing incineration options for remaining ${remainingTokens.length} tokens`);
+    }
   };
 
   return (
@@ -884,6 +955,7 @@ export default function PlinkoIncinerator() {
                   <TokenList 
                     eligibleTokens={eligibleTokens}
                     selectedTokens={selectedTokens}
+                    processedTokens={processedTokens}
                     tokenSearch={tokenSearch}
                     onTokenSearchChange={setTokenSearch}
                     onToggleTokenSelection={toggleTokenSelection}
