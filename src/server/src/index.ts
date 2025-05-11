@@ -41,6 +41,7 @@ import {
 } from './database/transactions';
 import pool from './database/db';
 import buybackService from './utils/buybackService';
+import { runMigrations } from './database/migrations';
 
 const app = express();
 const server = http.createServer(app);
@@ -66,7 +67,18 @@ const io = new Server(server, {
 
 // Initialize the database
 initializeDatabase()
-  .then(() => console.log('Database initialized successfully'))
+  .then(async () => {
+    console.log('Database initialized successfully');
+    try {
+      // Run migrations
+      console.log('Running database migrations...');
+      await runMigrations();
+      console.log('Migrations completed successfully');
+    } catch (error) {
+      console.error('Migration process failed:', error);
+      // We log the error but don't exit the process, allowing the app to continue
+    }
+  })
   .catch(err => console.error('Failed to initialize database:', err));
 
 // Store user state
