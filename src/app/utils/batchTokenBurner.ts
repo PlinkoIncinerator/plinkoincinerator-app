@@ -18,6 +18,7 @@ export async function batchBurnTokens(
   totalCount: number;
   signatures: string[];
   swappedButNotClosed?: number;
+  processedTokens?: string[]; // Add this to track which specific tokens were processed
 }> {
   try {
     if (!Config.solWallet.publicKey) {
@@ -26,7 +27,8 @@ export async function batchBurnTokens(
         message: "Wallet not connected",
         processedCount: 0,
         totalCount: 0,
-        signatures: []
+        signatures: [],
+        processedTokens: []
       };
     }
     
@@ -37,7 +39,8 @@ export async function batchBurnTokens(
         message: "No wallet available to sign transactions",
         processedCount: 0,
         totalCount: 0,
-        signatures: []
+        signatures: [],
+        processedTokens: []
       };
     }
 
@@ -59,13 +62,29 @@ export async function batchBurnTokens(
     
     const totalCount = accountsToProcess.length;
     
+    // Sort accounts by complexity - empty accounts first, then accounts with tokens
+    // This allows us to process empty accounts in larger batches, and accounts with tokens in smaller batches
+    accountsToProcess.sort((a, b) => {
+      const aEmpty = (a.account.data.parsed.info.tokenAmount.amount === "0");
+      const bEmpty = (b.account.data.parsed.info.tokenAmount.amount === "0");
+      
+      if (aEmpty && !bEmpty) return -1; // Empty accounts first
+      if (!aEmpty && bEmpty) return 1;
+      return 0;
+    });
+    
+    console.log("Sorted accounts by complexity - empty accounts first");
+    const emptyCount = accountsToProcess.filter(a => a.account.data.parsed.info.tokenAmount.amount === "0").length;
+    console.log(`Found ${emptyCount} empty accounts out of ${totalCount} total`);
+    
     if (totalCount === 0) {
       return {
         success: false,
         message: "No token accounts available to incinerate on batchTokenBurner.ts",
         processedCount: 0,
         totalCount: 0,
-        signatures: []
+        signatures: [],
+        processedTokens: []
       };
     }
     
@@ -80,6 +99,25 @@ export async function batchBurnTokens(
     let failedCount = 0;
     let remainingAccounts = [...accountsToProcess];
     let currentBatchSize = batchSize;
+    let processedTokens: string[] = []; // Track which tokens were successfully processed
+    
+    // Start with larger batch size for empty accounts
+    const initialEmptyAccountsCount = remainingAccounts.filter(a => 
+      a.account.data.parsed.info.tokenAmount.amount === "0"
+    ).length;
+    
+    // Use larger batch size for empty accounts (up to 15), smaller for accounts with tokens
+    if (initialEmptyAccountsCount > 0) {
+      currentBatchSize = Math.min(15, initialEmptyAccountsCount);
+      console.log(`Starting with batch size ${currentBatchSize} for empty accounts`);
+    } else {
+      // For accounts with tokens that need swapping, start with smaller batch size
+      currentBatchSize = Math.min(5, remainingAccounts.length);
+      console.log(`Starting with smaller batch size ${currentBatchSize} for accounts with tokens`);
+    }
+    
+    console.log("remainingAccounts", remainingAccounts);
+    console.log("currentBatchSize", currentBatchSize);
     
     // Process batches until we've processed all accounts or reached a minimum batch size that still fails
     while (remainingAccounts.length > 0 && currentBatchSize > 0) {
@@ -100,6 +138,16 @@ export async function batchBurnTokens(
       try {
         console.log(`Processing batch of ${batch.length} tokens (batch size: ${currentBatchSize})`);
         
+        // Create a callback function to adjust batch size when transaction is too large
+        const sizeLimitCallback = (recommendedSize: number) => {
+          console.log(`Transaction size limit exceeded. Reducing batch size from ${currentBatchSize} to ${recommendedSize}`);
+          // Update current batch size for next iteration
+          currentBatchSize = recommendedSize;
+          if (progressCallback) {
+            progressCallback(progress, `Adjusting batch size to ${recommendedSize} tokens...`);
+          }
+        };
+        
         // Call the burnTokens function from tokenBurner.ts with retry logic for compute unit errors
         let retryCount = 0;
         const MAX_RETRIES = 2;
@@ -110,7 +158,9 @@ export async function batchBurnTokens(
             result = await burnTokens(
               batchTokenPubkeys,
               dynamicWallet,
-              directWithdrawal
+              directWithdrawal,
+              currentBatchSize,  // Pass current batch size as maxTokens
+              sizeLimitCallback  // Pass the callback
             );
             
             // If successful, break out of retry loop
@@ -155,8 +205,27 @@ export async function batchBurnTokens(
           }
           console.log(`Batch completed successfully`);
           
+          // Add tracking of processed tokens
+          // Add successfully processed tokens to our tracking array
+          processedTokens = [...processedTokens, ...batchTokenPubkeys];
+          
           // Remove processed accounts from the remaining accounts
           remainingAccounts = remainingAccounts.slice(currentBatchSize);
+          
+          // Adjust batch size for next iteration based on remaining account types
+          const remainingEmptyAccounts = remainingAccounts.filter(a => 
+            a.account.data.parsed.info.tokenAmount.amount === "0"
+          ).length;
+          
+          if (remainingEmptyAccounts > 0) {
+            // If we still have empty accounts, process them at higher batch size
+            currentBatchSize = Math.min(15, remainingEmptyAccounts);
+            console.log(`Adjusting batch size to ${currentBatchSize} for remaining empty accounts`);
+          } else if (remainingAccounts.length > 0) {
+            // For non-empty accounts, use smaller batch size
+            currentBatchSize = Math.min(5, remainingAccounts.length);
+            console.log(`Adjusting batch size to ${currentBatchSize} for remaining accounts with tokens`);
+          }
           
           // Add a delay between batches to allow network to process
           // Use a longer delay to prevent rate limits and network congestion
@@ -185,8 +254,15 @@ export async function batchBurnTokens(
           error.message.includes('exceeds') ||
           error.message.includes('Transaction is too large')
         )) {
-          // Reduce batch size and try again with the same accounts
-          currentBatchSize = Math.max(1, Math.floor(currentBatchSize / 2));
+          // Extract recommended size if present in the error message
+          const sizeMatch = error.message.match(/Recommended batch size: (\d+)/);
+          if (sizeMatch && sizeMatch[1]) {
+            currentBatchSize = parseInt(sizeMatch[1]);
+          } else {
+            // Fallback to 1/2 reduction if no recommendation
+            currentBatchSize = Math.max(1, Math.floor(currentBatchSize / 2));
+          }
+          
           console.log(`Reducing batch size to ${currentBatchSize} due to transaction size limitations`);
           
           if (progressCallback) {
@@ -224,7 +300,8 @@ export async function batchBurnTokens(
         message,
         processedCount,
         totalCount,
-        signatures
+        signatures,
+        processedTokens: []
       };
     } else if (processedCount < totalCount) {
       message = `Partially completed: ${processedCount} of ${totalCount} tokens incinerated`;
@@ -243,7 +320,8 @@ export async function batchBurnTokens(
       processedCount,
       totalCount,
       signatures,
-      swappedButNotClosed: totalSwappedButNotClosed
+      swappedButNotClosed: totalSwappedButNotClosed,
+      processedTokens: processedTokens
     };
   } catch (error: any) {
     console.error("Batch incineration error:", error);
@@ -252,7 +330,8 @@ export async function batchBurnTokens(
       message: `Error: ${error.message || "Unknown error"}`,
       processedCount: 0,
       totalCount: 0,
-      signatures: []
+      signatures: [],
+      processedTokens: []
     };
   }
 } 

@@ -106,6 +106,7 @@ interface BurnResult {
   totalAmount?: number;
   closedCount?: number;
   swappedButNotClosed?: number;
+  processedTokens?: string[];
 }
 
 /**
@@ -113,12 +114,16 @@ interface BurnResult {
  * @param selectedTokens Array of token account pubkeys to process
  * @param dynamicWallet Dynamic wallet instance for signing (if available)
  * @param directWithdrawal Whether to withdraw directly (true) or use for gambling (false)
+ * @param maxTokens Maximum number of tokens to process in one transaction
+ * @param onSizeLimitExceeded Callback when transaction size exceeds limit, returns recommended batch size
  * @returns Result object with transaction details
  */
 export async function burnTokens(
   selectedTokens?: string[],
   dynamicWallet?: any,
-  directWithdrawal: boolean = false
+  directWithdrawal: boolean = false,
+  maxTokens: number = 15,
+  onSizeLimitExceeded?: (recommendedBatchSize: number) => void
 ): Promise<BurnResult> {
   // Add a tracking variable to count tokens that were swapped but not closed
   let swappedButNotClosed = 0;
@@ -161,10 +166,13 @@ export async function burnTokens(
       });
     }
 
+    console.log("accountsToProcess", accountsToProcess);
+    console.log("maxTokens", maxTokens);
+
     // Calculate approximate SOL return (0.00203928 SOL per token account closed)
     const expectedReturnPerAccount = 0.00203928;
-    // Limit to 5 token accounts at once to reduce transaction size and complexity
-    const accountsToClose = Math.min(accountsToProcess.length, 5);
+    // Limit to maxTokens token accounts at once to reduce transaction size and complexity
+    const accountsToClose = Math.min(accountsToProcess.length, maxTokens);
     
     if (accountsToClose === 0) {
       return {
@@ -204,8 +212,8 @@ export async function burnTokens(
 
     let closedCount = 0;
     
-    // Process selected token accounts (up to 5)
-    for (const ata of accountsToProcess.slice(0, 5)) {
+    // Process selected token accounts (up to maxTokens)
+    for (const ata of accountsToProcess.slice(0, accountsToClose)) {
       const data = (ata.account.data.parsed as TokenAccountData).info;
       
       // Skip blacklisted tokens (defined in tokenAccounts.ts)
@@ -319,13 +327,13 @@ export async function burnTokens(
             const swapReq = {
               quoteResponse: quoteData,
               userPublicKey: Config.solWallet.publicKey.toString(),
-              wrapUnwrapSOL: true,
+              wrapUnwrapSOL: false,
               slippageBps: 50,
               useSharedAccounts: true, // Use shared program accounts to reduce transaction size
               dynamicComputeUnitLimit: false, // Turn off dynamic limit since we're setting our own
               computeUnitPriceMicroLamports: 25000, // Match our compute budget price
               // Don't skip RPC calls to ensure proper account setup
-              skipUserAccountsRpcCalls: false,
+              skipUserAccountsRpcCalls: true,
             };
             const swapRes = await fetch("https://quote-api.jup.ag/v6/swap-instructions", {
               method: "POST",
@@ -424,13 +432,7 @@ export async function burnTokens(
                 continue;
               }
             }
-            incinerateInstructions.push(
-              createCloseAccountInstruction(
-                ata.pubkey,
-                Config.solWallet.publicKey!,     // Using non-null assertion
-                Config.solWallet.publicKey!      // Using non-null assertion
-              )
-            );
+            // DON'T add close account instruction here - we'll add it conditionally below
 
             console.log("incinerateInstructions", incinerateInstructions);
             // Check if transaction size would exceed limit if we add close instruction
@@ -439,39 +441,32 @@ export async function burnTokens(
             
             // Only try to close the account if transaction size allows
             if (currentSizeAfterSwap + 100 < MAX_TX_SIZE) { // 100 bytes buffer for close instruction
-              console.log("Adding close account instruction after swap");
-              incinerateInstructions.push(
-                createCloseAccountInstruction(
-                  ata.pubkey,
-                  Config.solWallet.publicKey!,
-                  Config.solWallet.publicKey!
-                )
-              );
-              console.log("Account will be closed in same transaction as swap");
+              try {
+                console.log("Adding close account instruction after swap");
+                incinerateInstructions.push(
+                  createCloseAccountInstruction(
+                    ata.pubkey,
+                    Config.solWallet.publicKey!,
+                    Config.solWallet.publicKey!
+                  )
+                );
+                console.log("Account will be closed in same transaction as swap");
+              } catch (closeError) {
+                console.error(`Error adding close instruction: ${closeError}`);
+                // If adding the close instruction fails, increment the counter
+                swappedButNotClosed++;
+                console.log(`WARNING: Account ${ata.pubkey.toString()} for token ${data.mint} will remain in wallet with zero balance`);
+              }
             } else {
               console.log(`Skipping close account instruction - transaction size would exceed limit (${currentSizeAfterSwap} bytes)`);
               swappedButNotClosed++;
+              console.log(`WARNING: Account ${ata.pubkey.toString()} for token ${data.mint} will remain in wallet with zero balance`);
             }
 
             console.log("incinerateInstructions", incinerateInstructions);
-            // After a swap, the token account may be in a state that makes it 
-            // incompatible with a CloseAccount instruction right away.
-            // We'll skip the close account instruction to avoid InvalidAccountData errors
-            // The token account will need to be closed in a separate transaction
             
-            console.log("Skipping close account instruction after swap for token:", data.mint);
-            console.log("NOTE: Token account for " + data.mint + " was swapped successfully but cannot be closed in the same transaction");
-            
-            // Since we couldn't close the account, make a note that it will remain in the user's wallet
-            // This token will still show up in the list after refresh, but with zero balance
-            console.log(`WARNING: Account ${ata.pubkey.toString()} for token ${data.mint} will remain in wallet with zero balance`);
-            
-            // Increment the counter for tokens that were swapped but not closed
-            swappedButNotClosed++;
-            
-            // After a successful swap, we count the token as processed even if we can't close it right away
+            // After a successful swap, count the token as processed
             closedCount++;
-            // Do not add the closeAccount instruction after swap
             continue;
           } else {
 
@@ -572,6 +567,7 @@ export async function burnTokens(
       }
     }
     
+    console.log("closedCount", closedCount);
     if (closedCount === 0) {
       return {
         success: false,
@@ -658,6 +654,15 @@ export async function burnTokens(
           console.log(`Actual transaction size: ${serializedTx.length} bytes`);
           
           if (serializedTx.length > MAX_TX_SIZE) {
+            // Calculate a recommended batch size based on the current size
+            const recommendedSize = Math.max(1, Math.floor(maxTokens * (MAX_TX_SIZE / serializedTx.length) * 0.8));
+            console.log(`Transaction too large: ${serializedTx.length} bytes (max: ${MAX_TX_SIZE}). Recommended batch size: ${recommendedSize}`);
+            
+            // Call the callback if provided
+            if (onSizeLimitExceeded) {
+              onSizeLimitExceeded(recommendedSize);
+            }
+            
             throw new Error(`Transaction too large: ${serializedTx.length} bytes (max: ${MAX_TX_SIZE}). Try closing fewer accounts at once.`);
           }
         } catch (serializationError) {
@@ -666,6 +671,15 @@ export async function burnTokens(
           // If we have many complex instructions, reduce the number of token accounts processed
           if (serializationError instanceof RangeError || 
               (serializationError.message && serializationError.message.includes("overrun"))) {
+            // Calculate a conservative recommended batch size
+            const recommendedSize = Math.max(1, Math.floor(maxTokens / 2));
+            console.log(`Transaction exceeds size limits. Recommended batch size: ${recommendedSize}`);
+            
+            // Call the callback if provided
+            if (onSizeLimitExceeded) {
+              onSizeLimitExceeded(recommendedSize);
+            }
+            
             throw new Error("Transaction exceeds size limits. Please try incinerating fewer token accounts at once.");
           }
           
@@ -840,6 +854,7 @@ export async function burnTokens(
       totalAmount: expectedReturn,
       closedCount,
       swappedButNotClosed,
+      processedTokens: selectedTokens,
     };
   } catch (error: any) {
     console.error("Incineration error:", error);

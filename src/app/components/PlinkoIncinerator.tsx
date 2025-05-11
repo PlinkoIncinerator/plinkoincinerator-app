@@ -550,8 +550,8 @@ export default function PlinkoIncinerator() {
           setLoadingMessage('Transaction size exceeded. Processing in smaller batches...');
           
           // Use batch processing instead
-          // Start with a conservative batch size for complex tokens
-          let batchSize = 2; // Very small initial batch size for complex tokens
+          // Use a higher initial batch size since our improved strategy sorts by complexity
+          let batchSize = 15; // Will be adjusted based on token account types
           
           // Progress callback to update UI during batch processing
           const batchProgressCallback = (progress: number, message: string) => {
@@ -569,6 +569,9 @@ export default function PlinkoIncinerator() {
             
             // If batch processing succeeded, continue with normal flow
             if (result.success) {
+              // Store the processed token pubkeys for proper UI update
+              const processedTokenPubkeys = result.processedTokens || [];
+              
               // Convert batch result to normal result format for consistency
               result = {
                 success: true,
@@ -577,7 +580,8 @@ export default function PlinkoIncinerator() {
                 feeTransferSignature: undefined,
                 totalAmount: result.processedCount * 0.00203928, // Estimate based on processed count
                 closedCount: result.processedCount,
-                swappedButNotClosed: result.swappedButNotClosed
+                swappedButNotClosed: result.swappedButNotClosed,
+                processedTokens: processedTokenPubkeys // Pass along the processed token pubkeys
               };
             } else {
               throw new Error(result.message);
@@ -645,8 +649,8 @@ export default function PlinkoIncinerator() {
         const verifyResult = await verifyResponse.json();
         
         if (verifyResult.status === 'success') {
-          // Remove the incinerated tokens from the list
-          const processedTokenPubkeys = new Set(accountsToProcess);
+          // Use the actual processed tokens from the result if available
+          const processedTokenPubkeys = new Set(result.processedTokens || accountsToProcess);
           
           setTokenAccounts(prev => prev.map(account => {
             if (processedTokenPubkeys.has(account.pubkey)) {
