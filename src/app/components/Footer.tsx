@@ -69,8 +69,6 @@ const Footer = () => {
             icon={<Image src="/telegram.png" alt="Telegram" width={20} height={20} />} 
             label="Telegram" 
           />
-          <SocialIcon href="https://github.com/plinkoincinerator" icon="💻" label="GitHub" />
-          <SocialIcon href="https://plinkoincinerator.substack.com" icon="📰" label="Substack" />
         </div>
         
         <div className="flex justify-center space-x-6 flex-wrap">

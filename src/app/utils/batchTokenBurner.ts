@@ -1,6 +1,6 @@
 import { Config } from "../config/solana";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { burnTokens } from "./tokenBurner";
+import { burnTokens, verifyTransactionWithServer } from "./tokenBurner";
 
 /**
  * Process tokens in smaller batches
@@ -19,6 +19,7 @@ export async function batchBurnTokens(
   signatures: string[];
   swappedButNotClosed?: number;
   processedTokens?: string[]; // Add this to track which specific tokens were processed
+  verifiedSignatures?: string[]; // Add this to track verified transaction signatures
 }> {
   try {
     if (!Config.solWallet.publicKey) {
@@ -28,7 +29,8 @@ export async function batchBurnTokens(
         processedCount: 0,
         totalCount: 0,
         signatures: [],
-        processedTokens: []
+        processedTokens: [],
+        verifiedSignatures: []
       };
     }
     
@@ -40,7 +42,8 @@ export async function batchBurnTokens(
         processedCount: 0,
         totalCount: 0,
         signatures: [],
-        processedTokens: []
+        processedTokens: [],
+        verifiedSignatures: []
       };
     }
 
@@ -84,7 +87,8 @@ export async function batchBurnTokens(
         processedCount: 0,
         totalCount: 0,
         signatures: [],
-        processedTokens: []
+        processedTokens: [],
+        verifiedSignatures: []
       };
     }
     
@@ -92,6 +96,9 @@ export async function batchBurnTokens(
     
     // Track tokens that were swapped but not closed
     let totalSwappedButNotClosed = 0;
+    
+    // Track verified signatures
+    const verifiedSignatures: string[] = [];
     
     // Process in batches
     const signatures: string[] = [];
@@ -197,7 +204,42 @@ export async function batchBurnTokens(
         if (result && result.success) {
           if (result.signature) {
             signatures.push(result.signature);
+            
+            // Immediately verify the transaction with the server
+            if (dynamicWallet && dynamicWallet.address) {
+              if (progressCallback) {
+                progressCallback(progress, `Verifying transaction ${signatures.length} with server...`);
+              }
+              
+              try {
+                const verificationResult = await verifyTransactionWithServer(
+                  dynamicWallet.address,
+                  result.signature,
+                  result.feeTransferSignature,
+                  directWithdrawal,
+                  !directWithdrawal // forGambling is the opposite of directWithdrawal
+                );
+                
+                if (verificationResult.status === 'success') {
+                  console.log(`Transaction ${result.signature} verified successfully with server`);
+                  verifiedSignatures.push(result.signature);
+                  
+                  if (progressCallback) {
+                    progressCallback(progress, `Transaction ${signatures.length} verified successfully`);
+                  }
+                } else {
+                  console.warn(`Transaction ${result.signature} verification warning: ${verificationResult.message}`);
+                  
+                  if (progressCallback) {
+                    progressCallback(progress, `Transaction ${signatures.length} verification warning`);
+                  }
+                }
+              } catch (verifyError) {
+                console.error(`Error verifying transaction ${result.signature} with server:`, verifyError);
+              }
+            }
           }
+          
           processedCount += (result.closedCount || 0);
           // Track tokens that were swapped but not closed
           if (result.swappedButNotClosed) {
@@ -301,7 +343,8 @@ export async function batchBurnTokens(
         processedCount,
         totalCount,
         signatures,
-        processedTokens: []
+        processedTokens: [],
+        verifiedSignatures: []
       };
     } else if (processedCount < totalCount) {
       message = `Partially completed: ${processedCount} of ${totalCount} tokens incinerated`;
@@ -321,7 +364,8 @@ export async function batchBurnTokens(
       totalCount,
       signatures,
       swappedButNotClosed: totalSwappedButNotClosed,
-      processedTokens: processedTokens
+      processedTokens: processedTokens,
+      verifiedSignatures: verifiedSignatures
     };
   } catch (error: any) {
     console.error("Batch incineration error:", error);
@@ -331,7 +375,8 @@ export async function batchBurnTokens(
       processedCount: 0,
       totalCount: 0,
       signatures: [],
-      processedTokens: []
+      processedTokens: [],
+      verifiedSignatures: []
     };
   }
 } 

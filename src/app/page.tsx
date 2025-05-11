@@ -6,7 +6,7 @@ import WalletConnectButton from './components/WalletConnectButton';
 import PlinkoMetrics from './components/plinko/PlinkoMetrics';
 import Head from 'next/head';
 import Image from 'next/image';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { trackPlinkoEvent, ANALYTICS_EVENTS } from './utils/analytics';
 import Header from './components/Header';
@@ -22,6 +22,42 @@ const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
       height={height}
       className={`inline-block ${className}`}
     />
+  );
+};
+
+// Partner Logo component
+interface PartnerLogoProps {
+  src: string;
+  alt: string;
+  href: string;
+}
+
+const PartnerLogo = ({ src, alt, href }: PartnerLogoProps) => {
+  const handleClick = () => {
+    trackPlinkoEvent(ANALYTICS_EVENTS.CLICK_SOCIAL, {
+      platform: alt,
+      url: href
+    });
+  };
+
+  return (
+    <a 
+      href={href} 
+      target="_blank" 
+      rel="noopener noreferrer" 
+      className="mx-6 flex flex-col items-center justify-center bg-gray-800 bg-opacity-50 p-5 rounded-lg hover:bg-opacity-80 transition-all transform hover:-translate-y-1 hover:shadow-lg border border-gray-700 min-w-[150px]"
+      onClick={handleClick}
+      aria-label={alt}
+    >
+      <Image
+        src={src}
+        alt={alt}
+        width={120}
+        height={60}
+        className="h-12 w-auto object-contain brightness-110 drop-shadow-[0_0_2px_rgba(255,255,255,0.5)]"
+      />
+      <span className="mt-2 text-sm font-medium text-gray-300">{alt}</span>
+    </a>
   );
 };
 
@@ -96,6 +132,7 @@ export default function Home() {
   const [totalBallsDropped, setTotalBallsDropped] = useState<number | null>(null);
   const [totalSolBurned, setTotalSolBurned] = useState<number | null>(null);
   const [isMetricsLoading, setIsMetricsLoading] = useState(true);
+  const carouselRef = useRef<HTMLDivElement>(null);
   
   // Random degen taglines, memoized to avoid dependency array issues
   const taglines = useMemo(() => [
@@ -432,6 +469,92 @@ export default function Home() {
                 </a>
               </div>
             </div>
+          </div>
+        </section>
+        
+        {/* Partner Logos Section */}
+        <section className="py-12 bg-transparent">
+          <div className="container mx-auto px-4 text-center">
+            <h2 className="text-3xl font-bold mb-8 bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent flex items-center justify-center">
+              <span className="mr-3 text-4xl">🌟</span> 
+              FEATURED ON 
+              <span className="ml-3 text-4xl">🌟</span>
+            </h2>
+            
+            <div className="relative overflow-hidden py-6">
+              <div className="flex overflow-hidden py-4 carousel-container">
+                <div className="animate-marquee flex">
+                  <PartnerLogo 
+                    src="/coinmarketcap.png" 
+                    alt="CoinMarketCap" 
+                    href="https://coinmarketcap.com/currencies/plinkoincinerator/"
+                  />
+                  <PartnerLogo 
+                    src="/coingecko.png" 
+                    alt="CoinGecko" 
+                    href="https://www.coingecko.com/en/coins/plinkoincinerator"
+                  />
+                  <PartnerLogo 
+                    src="/dexscreener.png" 
+                    alt="DexScreener" 
+                    href="https://dexscreener.com/solana/49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump"
+                  />
+                  <PartnerLogo 
+                    src="/dextools.png" 
+                    alt="DexTools" 
+                    href="https://www.dextools.io/app/en/solana/pair-explorer/49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump"
+                  />
+                  <PartnerLogo 
+                    src="/moontok.png" 
+                    alt="MoonTok" 
+                    href="https://moontok.io/token/solana/49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump"
+                  />
+                  <PartnerLogo 
+                    src="/pumpfun.png" 
+                    alt="Pump.fun" 
+                    href="https://pump.fun/token/49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump"
+                  />
+                  
+                  {/* Duplicate logos for continuous scrolling effect */}
+                  <PartnerLogo 
+                    src="/coinmarketcap.png" 
+                    alt="CoinMarketCap" 
+                    href="https://coinmarketcap.com/currencies/plinkoincinerator/"
+                  />
+                  <PartnerLogo 
+                    src="/coingecko.png" 
+                    alt="CoinGecko" 
+                    href="https://www.coingecko.com/en/coins/plinkoincinerator"
+                  />
+                  <PartnerLogo 
+                    src="/dexscreener.png" 
+                    alt="DexScreener" 
+                    href="https://dexscreener.com/solana/49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump"
+                  />
+                  <PartnerLogo 
+                    src="/dextools.png" 
+                    alt="DexTools" 
+                    href="https://www.dextools.io/app/en/solana/pair-explorer/49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump"
+                  />
+                  <PartnerLogo 
+                    src="/moontok.png" 
+                    alt="MoonTok" 
+                    href="https://moontok.io/token/solana/49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump"
+                  />
+                  <PartnerLogo 
+                    src="/pumpfun.png"
+                    alt="Pump.fun" 
+                    href="https://pump.fun/token/49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump"
+                  />
+                </div>
+              </div>
+              
+              {/* Gradient overlays for effect */}
+              <div className="absolute top-0 bottom-0 left-0 w-16 bg-gradient-to-r from-transparent to-transparent pointer-events-none"></div>
+              <div className="absolute top-0 bottom-0 right-0 w-16 bg-gradient-to-l from-transparent to-transparent pointer-events-none"></div>
+            </div>
+            
+            <p className="text-gray-300 text-sm mt-5 max-w-lg mx-auto">$PLINC token is now listed on these major platforms. Click any logo to view our token details.</p>
           </div>
         </section>
         

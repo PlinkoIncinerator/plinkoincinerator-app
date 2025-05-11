@@ -948,9 +948,12 @@ io.on('connection', (socket: any) => {
     
     try {
       // If wallet is connected, refresh the balance from database
+
+      console.log(`[DEBUG] Refreshing balance for wallet: ${userState.walletAddress}`);
       if (userState.walletAddress) {
         try {
           const balanceSummary = await getWalletBalanceSummary(userState.walletAddress);
+          console.log(`[DEBUG] Balance summary: ${balanceSummary}`);
           userState.balance = balanceSummary.currentBalance;
           
           // Update in-memory balance for consistency
@@ -972,16 +975,23 @@ io.on('connection', (socket: any) => {
           // Continue without game history if query fails
         }
       }
-      
-      // Return the current state
-      callback({
+
+
+      console.log(`[DEBUG] Game history: ${gameHistory}`);
+
+      const returnData = {
         hashedServerSeed: hashServerSeed(userState.serverSeed),
         clientSeed: userState.clientSeed,
         balance: userState.balance,
         walletAddress: userState.walletAddress,
         gameHistory: gameHistory as GameHistoryEntry[],
         nonce: userState.nonce
-      });
+      }
+
+      console.log(`[DEBUG] Return data: ${returnData}`);
+      
+      // Return the current state
+      callback(returnData);
       
       console.log(`Game state refreshed for client: ${socket.id}`);
     } catch (error) {

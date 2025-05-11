@@ -490,7 +490,6 @@ export default function Home() {
             <div className="flex flex-wrap justify-center gap-6 mb-6">
               <SocialIcon href="https://twitter.com/plinkcinerator" icon="🐦" label="Twitter" />
               <SocialIcon href="https://t.me/plinkoincinerator" icon="💬" label="Telegram" />
-              <SocialIcon href="https://github.com/plinkoincinerator" icon="💻" label="GitHub" />
               <SocialIcon href="https://t.me/plinkoincinerator" icon="📱" label="Telegram" />
               <SocialIcon href="https://plinkoincinerator.substack.com" icon="📰" label="Substack" />
             </div>

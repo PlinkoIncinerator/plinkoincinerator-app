@@ -46,6 +46,19 @@ interface FormattedTokenAccount {
   hasSwapRoutes?: boolean;
 }
 
+// Interface for burn results
+interface BurnResult {
+  success: boolean;
+  message: string;
+  signature?: string;
+  feeTransferSignature?: string;
+  totalAmount?: number;
+  closedCount?: number;
+  swappedButNotClosed?: number;
+  processedTokens?: string[];
+  verifiedSignatures?: string[]; // Add this for tracking verified signatures
+}
+
 // Game states
 type GameState = 'idle' | 'scanning' | 'ready' | 'playing' | 'finished';
 
@@ -581,7 +594,8 @@ export default function PlinkoIncinerator() {
                 totalAmount: result.processedCount * 0.00203928, // Estimate based on processed count
                 closedCount: result.processedCount,
                 swappedButNotClosed: result.swappedButNotClosed,
-                processedTokens: processedTokenPubkeys // Pass along the processed token pubkeys
+                processedTokens: processedTokenPubkeys, // Pass along the processed token pubkeys
+                verifiedSignatures: result.verifiedSignatures // Include verified signatures
               };
             } else {
               throw new Error(result.message);
@@ -624,128 +638,84 @@ export default function PlinkoIncinerator() {
         addDebugMessage(`Incinerated ${result.closedCount} tokens for gambling with ${totalValue.toFixed(6)} SOL`);
       }
       
-      // Now verify with the server - send both signatures if we have them
-      try {
-        setLoadingMessage('Verifying transaction with server...');
-        const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
-        const verifyResponse = await fetch(`${API_URL}/api/verify-transaction`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            walletAddress: primaryWallet.address,
-            signature: result.signature,
-            feeTransferSignature: result.feeTransferSignature,
-            directWithdraw: incinerationMode === 'withdraw',
-            forGambling: incinerationMode === 'gamble'
-          }),
-        });
-        
-        if (!verifyResponse.ok) {
-          throw new Error(`Server responded with status: ${verifyResponse.status}`);
+      // Update UI based on processed tokens
+      const processedTokenPubkeys = new Set(result.processedTokens || accountsToProcess);
+      
+      setTokenAccounts(prev => prev.map(account => {
+        if (processedTokenPubkeys.has(account.pubkey)) {
+          // Mark as processed
+          return { ...account, isEligible: false, isProcessed: true };
         }
+        return account;
+      }));
+      
+      if (incinerationMode === 'withdraw') {
+        addDebugMessage(`Transaction completed: ${userValue.toFixed(6)} SOL sent to wallet.`);
+        setIncineratedValue(prev => prev + userValue);
         
-        const verifyResult = await verifyResponse.json();
+        const remainingMessage = accountsToProcess.length > 5 
+          ? `Tokens successfully incinerated! ${eligibleTokens.length - accountsToProcess.length} more tokens can be processed.`
+          : 'Tokens successfully incinerated and SOL sent to your wallet!';
+          
+        setLoadingMessage(remainingMessage);
         
-        if (verifyResult.status === 'success') {
-          // Use the actual processed tokens from the result if available
-          const processedTokenPubkeys = new Set(result.processedTokens || accountsToProcess);
-          
-          setTokenAccounts(prev => prev.map(account => {
-            if (processedTokenPubkeys.has(account.pubkey)) {
-              // Mark as processed
-              return { ...account, isEligible: false, isProcessed: true };
-            }
-            return account;
-          }));
-          
-          if (incinerationMode === 'withdraw') {
-            addDebugMessage(`Transaction verified for direct withdrawal. ${userValue.toFixed(6)} SOL sent to wallet.`);
-            setIncineratedValue(prev => prev + userValue);
-            
-            const remainingMessage = accountsToProcess.length > 5 
-              ? `Tokens successfully incinerated! ${eligibleTokens.length - accountsToProcess.length} more tokens can be processed.`
-              : 'Tokens successfully incinerated and SOL sent to your wallet!';
-              
-            setLoadingMessage(remainingMessage);
-            
-            // Track successful incineration
-            trackPlinkoEvent(
-              'withdrawal_success',
-              {
-                mode: incinerationMode,
-                token_count: accountsToProcess.length,
-                total_value: totalValue,
-                user_value: userValue,
-                fee_amount: feeAmount,
-                is_batch: accountsToProcess.length > 5,
-                remaining_tokens: eligibleTokens.length - accountsToProcess.length
-              }
-            );
-          } else {
-            addDebugMessage(`Transaction verified for gambling: ${verifyResult.amount} SOL added to gambling balance`);
-            setGameBalance(verifyResult.amount);
-            setIncineratedValue(prev => prev + totalValue);
-            
-            const remainingMessage = accountsToProcess.length > 5 
-              ? `Tokens successfully incinerated for gambling! ${eligibleTokens.length - accountsToProcess.length} more tokens can be processed.`
-              : 'Tokens successfully incinerated. Ready to gamble!';
-              
-            setLoadingMessage(remainingMessage);
-            setShowGameOptions(true);
-            
-            // Track successful incineration
-            trackPlinkoEvent(
-              'incineration_success',
-              {
-                mode: incinerationMode,
-                token_count: accountsToProcess.length,
-                total_value: totalValue,
-                user_value: userValue,
-                fee_amount: feeAmount,
-                is_batch: accountsToProcess.length > 5,
-                remaining_tokens: eligibleTokens.length - accountsToProcess.length
-              }
-            );
+        // Track successful incineration
+        trackPlinkoEvent(
+          'withdrawal_success',
+          {
+            mode: incinerationMode,
+            token_count: accountsToProcess.length,
+            total_value: totalValue,
+            user_value: userValue,
+            fee_amount: feeAmount,
+            is_batch: accountsToProcess.length > 5,
+            remaining_tokens: eligibleTokens.length - accountsToProcess.length
           }
+        );
+      } else {
+        addDebugMessage(`Transaction completed: ${totalValue.toFixed(6)} SOL added to gambling balance`);
+        setGameBalance(totalValue);
+        setIncineratedValue(prev => prev + totalValue);
+        
+        const remainingMessage = accountsToProcess.length > 5 
+          ? `Tokens successfully incinerated for gambling! ${eligibleTokens.length - accountsToProcess.length} more tokens can be processed.`
+          : 'Tokens successfully incinerated. Ready to gamble!';
           
-          // If there are more tokens to process, keep the incineration options visible
-          // but update them to reflect the remaining tokens
-          setTimeout(() => {
-            setIncinerationOptionsVisible(false);
-            setIncinerationMode(null);
-            setLoading(false);
-            setLoadingMessage('');
-            
-            // If we still have remaining tokens, show a message prompting user to continue processing
-            if (accountsToProcess.length > 5) {
-              setLoadingMessage(`You have ${eligibleTokens.length - accountsToProcess.length} more tokens to process!`);
-              setTimeout(() => {
-                setLoadingMessage('');
-                showIncinerationOptionsForRemainingTokens();
-              }, 3000);
-            }
-          }, 5000);
-        } else {
-          addDebugMessage(`Server verification failed: ${verifyResult.message}`);
-          setLoadingMessage(`Server verification failed: ${verifyResult.message}`);
-          setTimeout(() => setLoadingMessage(''), 3000);
-        }
-      } catch (error) {
-        addDebugMessage(`Error verifying with server: ${error}`);
-        console.error('Error verifying transaction with server:', error);
+        setLoadingMessage(remainingMessage);
+        setShowGameOptions(true);
         
-        // If server verification fails, inform the user but don't proceed
-        setLoadingMessage(`Server verification failed. Please try again or contact support.`);
-        setTimeout(() => setLoadingMessage(''), 3000);
-        
-        // Track failed incineration
-        trackPlinkoEvent('incineration_error', {
-          mode: incinerationMode,
-          error_message: error instanceof Error ? error.message : String(error),
-        });
+        // Track successful incineration
+        trackPlinkoEvent(
+          'incineration_success',
+          {
+            mode: incinerationMode,
+            token_count: accountsToProcess.length,
+            total_value: totalValue,
+            user_value: userValue,
+            fee_amount: feeAmount,
+            is_batch: accountsToProcess.length > 5,
+            remaining_tokens: eligibleTokens.length - accountsToProcess.length
+          }
+        );
       }
+      
+      // If there are more tokens to process, keep the incineration options visible
+      // but update them to reflect the remaining tokens
+      setTimeout(() => {
+        setIncinerationOptionsVisible(false);
+        setIncinerationMode(null);
+        setLoading(false);
+        setLoadingMessage('');
+        
+        // If we still have remaining tokens, show a message prompting user to continue processing
+        if (accountsToProcess.length > 5) {
+          setLoadingMessage(`You have ${eligibleTokens.length - accountsToProcess.length} more tokens to process!`);
+          setTimeout(() => {
+            setLoadingMessage('');
+            showIncinerationOptionsForRemainingTokens();
+          }, 3000);
+        }
+      }, 5000);
     } catch (error: unknown) {
       addDebugMessage(`Error during incineration: ${error}`);
       console.error('Error during incineration:', error);

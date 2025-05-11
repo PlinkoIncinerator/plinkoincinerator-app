@@ -110,6 +110,56 @@ interface BurnResult {
 }
 
 /**
+ * Verifies a transaction with the server
+ * @param walletAddress The wallet address
+ * @param signature The transaction signature
+ * @param feeTransferSignature Optional fee transfer signature
+ * @param directWithdrawal Whether this was a direct withdrawal
+ * @param forGambling Whether this was for gambling
+ * @returns Promise with verification result
+ */
+export async function verifyTransactionWithServer(
+  walletAddress: string,
+  signature: string,
+  feeTransferSignature?: string,
+  directWithdrawal: boolean = false,
+  forGambling: boolean = false
+): Promise<{ status: string; message?: string; amount?: number }> {
+  try {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+    const verifyResponse = await fetch(`${API_URL}/api/verify-transaction`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        walletAddress,
+        signature,
+        feeTransferSignature,
+        directWithdraw: directWithdrawal,
+        forGambling
+      }),
+    });
+    
+    if (!verifyResponse.ok) {
+      return {
+        status: 'error',
+        message: `Server responded with status: ${verifyResponse.status}`
+      };
+    }
+    
+    const verifyResult = await verifyResponse.json();
+    return verifyResult;
+  } catch (error) {
+    console.error('Error verifying transaction with server:', error);
+    return {
+      status: 'error',
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+/**
  * Burns tokens, closes accounts, and returns SOL to the wallet
  * @param selectedTokens Array of token account pubkeys to process
  * @param dynamicWallet Dynamic wallet instance for signing (if available)
@@ -189,6 +239,7 @@ export async function burnTokens(
     const feeAmount = expectedReturn * Config.FEE_PERCENTAGE;
     
     // Always ensure the fee wallet is set
+    
     if (!Config.FEE_WALLET) {
       return {
         success: false,
@@ -716,6 +767,24 @@ export async function burnTokens(
           }
           
           console.log(`Incineration transaction confirmed successfully`);
+          
+          // Verify the transaction with the server immediately after confirmation
+          if (dynamicWallet && dynamicWallet.address) {
+            console.log('Verifying transaction with server...');
+            const verificationResult = await verifyTransactionWithServer(
+              dynamicWallet.address,
+              signature,
+              undefined, // feeTransferSignature is undefined at this point
+              directWithdrawal,
+              !directWithdrawal // forGambling is the opposite of directWithdrawal
+            );
+            
+            if (verificationResult.status !== 'success') {
+              console.warn(`Server verification warning: ${verificationResult.message}`);
+            } else {
+              console.log('Transaction verified with server successfully');
+            }
+          }
         } catch (confirmError) {
           // Don't throw for blockheight exceeded - check transaction status directly
           if (confirmError.message && confirmError.message.includes('block height exceeded')) {
@@ -877,4 +946,4 @@ export async function burnTokens(
       closedCount: 0,
     };
   }
-} 
+}
