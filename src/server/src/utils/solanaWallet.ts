@@ -151,6 +151,7 @@ export async function verifyDeposit(
   success: boolean;
   amount?: number;
   fullAmount?: number; // Add full amount returned for gambling
+  swappedValue?: number; // Add swapped value from Jupiter transactions
   error?: string;
 }> {
   try {
@@ -336,6 +337,57 @@ export async function verifyDeposit(
     let feeVerified = false;
     let isGamblingDeposit = false;
     let amountForGambling = 0;
+    let swappedValue = 0; // Track value of swapped tokens
+    
+    // Check for Jupiter swap by looking for log messages
+    let jupiterSwapFound = false;
+    if (incinerationTx.meta && incinerationTx.meta.logMessages) {
+      // Check logs for Jupiter swap messages
+      for (const log of incinerationTx.meta.logMessages) {
+        if (log.includes('Program JUP') || log.includes('Jupiter') || log.includes('swap')) {
+          jupiterSwapFound = true;
+          console.log("Jupiter swap detected in transaction logs");
+          break;
+        }
+      }
+    }
+    
+    // Check Jupiter swap by analyzing actual balance changes
+    if (jupiterSwapFound && incinerationTx.meta && incinerationTx.meta.postBalances && incinerationTx.meta.preBalances) {
+      console.log(`----- SIMPLIFIED BALANCE ANALYSIS FOR SWAP -----`);
+      
+      // Find user wallet index in accounts
+      const walletIndex = accountKeys.findIndex(
+        (key: PublicKey) => key.toString().toLowerCase() === walletAddress.toLowerCase()
+      );
+      
+      if (walletIndex !== -1) {
+        // Calculate user wallet balance change
+        const preBalance = incinerationTx.meta.preBalances[walletIndex];
+        const postBalance = incinerationTx.meta.postBalances[walletIndex];
+        const walletBalanceChange = (postBalance - preBalance) / 1e9; // Convert from lamports to SOL
+        
+        console.log(`User wallet balance change: ${walletBalanceChange} SOL`);
+        
+        if (walletBalanceChange > 0) {
+          // User gained SOL - this could be from account closures or swaps
+          
+          // Expected return from closed accounts
+          const expectedFromClosures = closedAccountsCount * expectedReturnPerAccount;
+          console.log(`Expected SOL from ${closedAccountsCount} closed accounts: ${expectedFromClosures} SOL`);
+          
+          // If wallet gained more than expected from closures, the extra is likely from swaps
+          if (walletBalanceChange > expectedFromClosures + 0.0001) { // add small buffer for dust
+            swappedValue = walletBalanceChange - expectedFromClosures;
+            console.log(`Extra SOL received (likely from swaps): ${swappedValue} SOL`);
+          } else {
+            console.log(`No significant extra SOL detected beyond account closures`);
+          }
+        } else {
+          console.log(`User wallet balance didn't increase`);
+        }
+      }
+    }
     
     // Check if there was a transfer to the fee wallet in the main incineration transaction
     // This could be either just the fee portion (direct withdrawal) or the full amount (gambling)
@@ -366,118 +418,6 @@ export async function verifyDeposit(
           console.log(`Found fee payment of ${feeAmount} SOL (expected ${expectedFee} SOL)`);
           feeVerified = true;
         }
-      }
-    }
-    
-    // If we have a separate fee transfer signature, verify it
-    if (!feeVerified && feeTransferSignature) {
-      // Check if fee transaction has already been processed
-      if (transactionRegistry.has(feeTransferSignature)) {
-        console.log('Fee transaction already processed');
-        return { 
-          success: false, 
-          error: 'Fee transaction already processed' 
-        };
-      }
-      
-      // Use retry mechanism for fee transaction similar to incineration transaction
-      console.log(`Starting verification for fee transaction: ${feeTransferSignature}`);
-      let feeTx: VersionedTransactionResponse | null = null;
-      retryCount = 0; // Reuse the counter from above
-      
-      while (retryCount < MAX_RETRIES && !feeTx) {
-        try {
-          console.log(`Fetching fee transaction (attempt ${retryCount + 1}/${MAX_RETRIES}): ${feeTransferSignature}`);
-          
-          // Get fee transaction details
-          feeTx = await getTransactionWithFallbacks(feeTransferSignature, {
-            commitment: 'confirmed',
-            maxSupportedTransactionVersion: 0
-          });
-          
-          if (feeTx) {
-            console.log(`Fee transaction found on attempt ${retryCount + 1}`);
-            break;
-          } else {
-            console.log(`Fee transaction not found on attempt ${retryCount + 1}`);
-            
-            // Check if this is the last retry
-            if (retryCount === MAX_RETRIES - 1) {
-              // Before giving up, try with 'finalized' commitment as a last resort
-              console.log('Trying with finalized commitment as last resort for fee transaction');
-              feeTx = await getTransactionWithFallbacks(feeTransferSignature, {
-                commitment: 'finalized',
-                maxSupportedTransactionVersion: 0
-              });
-              
-              if (feeTx) {
-                console.log('Fee transaction found with finalized commitment');
-                break;
-              }
-            }
-            
-            // Exponential backoff before retrying
-            const delay = INITIAL_DELAY_MS * Math.pow(2, retryCount);
-            console.log(`Waiting ${delay}ms before retry ${retryCount + 2} for fee transaction`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            retryCount++;
-          }
-        } catch (fetchError: any) {
-          console.error(`Error fetching fee transaction (attempt ${retryCount + 1}):`, fetchError);
-          
-          // Exponential backoff before retrying
-          const delay = INITIAL_DELAY_MS * Math.pow(2, retryCount);
-          console.log(`Error occurred, waiting ${delay}ms before retry ${retryCount + 2} for fee transaction`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          retryCount++;
-        }
-      }
-      
-      if (!feeTx) {
-        console.log(`Fee transaction not found after ${MAX_RETRIES} attempts`);
-        console.log(`Transaction might still be confirming. Check Solscan: https://solscan.io/tx/${feeTransferSignature}`);
-        return { 
-          success: false, 
-          error: `Fee transaction not found after ${MAX_RETRIES} attempts. It might still be confirming.` 
-        };
-      }
-      
-      console.log('Fee transaction found, analyzing...');
-      console.log(`Transaction status: ${feeTx.meta?.err ? 'Failed' : 'Success'}`);
-      console.log(`Slot: ${feeTx.slot}`);
-      console.log(`Block time: ${feeTx.blockTime ? new Date(feeTx.blockTime * 1000).toISOString() : 'Unknown'}`);
-      
-      // Get account keys from fee transaction
-      const feeMessage = feeTx.transaction.message;
-      const feeAccountKeys = feeMessage.staticAccountKeys || 
-                          (feeMessage.getAccountKeys ? feeMessage.getAccountKeys() : []);
-      
-      // Verify fee transaction sent funds to our fee wallet
-      let feeTransferAmount = 0;
-      
-      // Check if any SOL was transferred to our fee wallet
-      if (feeTx.meta && feeTx.meta.postBalances && feeTx.meta.preBalances) {
-        const feeWalletIndex = feeAccountKeys.findIndex(
-          (key: PublicKey) => key.toString().toLowerCase() === feeWalletAddress.toLowerCase()
-        );
-        
-        if (feeWalletIndex !== -1) {
-          const preBalance = feeTx.meta.preBalances[feeWalletIndex];
-          const postBalance = feeTx.meta.postBalances[feeWalletIndex];
-          feeTransferAmount = (postBalance - preBalance) / 1e9; // Convert from lamports to SOL
-          
-          console.log(`Fee wallet balance increased by ${feeTransferAmount} SOL`);
-        }
-      }
-      
-      // More flexible fee verification - allow up to 10% deviation
-      const lowerBound = expectedFee * 0.90;
-      
-      if (feeTransferAmount >= lowerBound) {
-        console.log(`Fee transfer of ${feeTransferAmount} SOL is sufficient (min required: ${lowerBound} SOL)`);
-        feeVerified = true;
-      } else {
-        console.log(`Fee transfer of ${feeTransferAmount} SOL is insufficient (min required: ${lowerBound} SOL)`);
       }
     }
     
@@ -517,28 +457,34 @@ export async function verifyDeposit(
     // Add to user's balance - different amounts for withdraw vs. gambling
     if (isGamblingDeposit) {
       // For gambling, add the full amount to the user's balance
+      // Include swap value if we detected any
+      const totalValue = amountForGambling + swappedValue;
       const currentBalance = userBalances.get(walletAddress) || 0;
-      userBalances.set(walletAddress, currentBalance + amountForGambling);
-      console.log(`Added gambling amount of ${amountForGambling} SOL to user balance`);
-      console.log(`New gambling balance: ${currentBalance + amountForGambling} SOL`);
+      userBalances.set(walletAddress, currentBalance + totalValue);
+      console.log(`Added gambling amount of ${amountForGambling} SOL plus swap value of ${swappedValue} SOL to user balance`);
+      console.log(`New gambling balance: ${currentBalance + totalValue} SOL`);
       
       return {
         success: true,
-        amount: amountForGambling,
-        fullAmount: amountForGambling
+        amount: totalValue,
+        fullAmount: totalValue,
+        swappedValue: swappedValue
       };
     } else {
       // For direct withdrawal, add the amount after fee
-      const userAmount = totalExpectedReturn * (1 - FEE_PERCENTAGE);
+      // Include swap value if we detected any
+      const accountsValue = totalExpectedReturn * (1 - FEE_PERCENTAGE);
+      const totalValue = accountsValue + swappedValue;
       const currentBalance = userBalances.get(walletAddress) || 0;
-      userBalances.set(walletAddress, currentBalance + userAmount);
+      userBalances.set(walletAddress, currentBalance + totalValue);
       
-      console.log(`Verification successful! Added ${userAmount} SOL to user balance`);
-      console.log(`New user balance: ${currentBalance + userAmount} SOL`);
+      console.log(`Verification successful! Added ${accountsValue} SOL from accounts plus ${swappedValue} SOL from swaps to user balance`);
+      console.log(`New user balance: ${currentBalance + totalValue} SOL`);
       
       return {
         success: true,
-        amount: userAmount
+        amount: totalValue,
+        swappedValue: swappedValue
       };
     }
   } catch (error: any) {

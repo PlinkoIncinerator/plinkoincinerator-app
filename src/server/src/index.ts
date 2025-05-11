@@ -316,6 +316,12 @@ app.post('/api/verify-transaction', async (req: any, res: any) => {
       // Save the transaction to the database
       const isGambling = !!forGambling;
       const fullAmount = result.fullAmount || result.amount || 0;
+      const swappedValue = result.swappedValue || 0;
+      
+      // Log if we detected swapped value
+      if (swappedValue > 0) {
+        console.log(`Including ${swappedValue} SOL from token swaps in deposit value`);
+      }
       
       // For gambling, credit 97.9% to user balance, 2.1% retained by platform
       const amount = isGambling ? fullAmount * 0.979 : fullAmount;
@@ -329,7 +335,8 @@ app.post('/api/verify-transaction', async (req: any, res: any) => {
           amount: fullAmount, // Store full amount in deposit record
           is_gambling: isGambling,
           is_processed: true,
-          timestamp: new Date()
+          timestamp: new Date(),
+          swapped_value: swappedValue // Add swapped value to deposit record
         });
         
         // Also save to transactions table
@@ -339,13 +346,15 @@ app.post('/api/verify-transaction', async (req: any, res: any) => {
           amount,
           type: 'deposit',
           status: 'completed',
-          description: isGambling ? 'Deposit for gambling' : 'Regular deposit',
+          description: isGambling 
+            ? `Deposit for gambling ${swappedValue > 0 ? `(includes ${swappedValue} SOL from swaps)` : ''}`
+            : `Regular deposit ${swappedValue > 0 ? `(includes ${swappedValue} SOL from swaps)` : ''}`,
           timestamp: new Date()
         });
         
-        console.log(`Saved deposit to database. Gambling: ${isGambling}, Amount: ${amount}`);
+        console.log(`Saved deposit to database. Gambling: ${isGambling}, Amount: ${amount}, Swapped value: ${swappedValue}`);
 
-        // Track burn for buyback if this was a burning transaction
+        // Track burn for buyback if this was a gambling transaction
         if (isGambling) {
           const burnAmount = fullAmount * 0.021; // Only track the 2.1% fee for buyback
           console.log(`Tracking burn of ${burnAmount} SOL for buyback calculations`);
@@ -362,62 +371,31 @@ app.post('/api/verify-transaction', async (req: any, res: any) => {
         // We'll continue even if database save fails
       }
       
-      // Get database balance for the response
-      let databaseBalance;
-      try {
-        const balanceSummary = await getWalletBalanceSummary(walletAddress);
-        databaseBalance = balanceSummary.currentBalance;
-      } catch (dbError) {
-        console.error('Error getting database balance:', dbError);
-        // Fallback to in-memory balance
-        databaseBalance = getUserBalance(walletAddress);
-      }
-      
-      // If we have a user state for this wallet, update it
-      for (const [socketId, state] of userStates.entries()) {
-        if (state.walletAddress === walletAddress) {
-          // Update the state with the database balance
-          try {
-            const balanceSummary = await getWalletBalanceSummary(walletAddress);
-            state.balance = balanceSummary.currentBalance;
-            userStates.set(socketId, state);
-          } catch (dbError) {
-            console.error('Error updating user state balance:', dbError);
-            // Fallback to in-memory balance
-            state.balance = getUserBalance(walletAddress);
-            userStates.set(socketId, state);
-          }
-          
-          // Add the transaction to the registry
-          state.depositSignatures = state.depositSignatures || [];
-          state.depositSignatures.push(signature);
-          if (feeTransferSignature) {
-            state.depositSignatures.push(feeTransferSignature);
-          }
-          
-          // Notify client of updated balance
-          io.to(socketId).emit('balance:update', { balance: state.balance });
-        }
-      }
-      
-      // For the response, we return the amount credited to user (97.9% for gambling)
-      return res.status(200).json({
+      // Send success response to client
+      return res.json({
         status: 'success',
         message: 'Transaction verified successfully',
-        amount: amount, // Use the calculated amount (97.9% for gambling)
-        balance: databaseBalance
+        data: {
+          amount,
+          fullAmount,
+          swappedValue,
+          isGambling,
+          balance: getUserBalance(walletAddress)
+        }
       });
     } else {
+      // Transaction verification failed
+      console.log(`Verification failed: ${result.error}`);
       return res.status(400).json({
         status: 'error',
         message: result.error || 'Failed to verify transaction'
       });
     }
-  } catch (error) {
-    console.error('Error verifying transaction:', error);
+  } catch (error: any) {
+    console.error('Error in verify-transaction endpoint:', error);
     return res.status(500).json({
       status: 'error',
-      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+      message: `Internal server error: ${error.message || error}`
     });
   }
 });

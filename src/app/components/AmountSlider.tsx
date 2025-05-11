@@ -44,6 +44,7 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
   // Add ref to store previous value to prevent duplicate updates
   const previousUsdValueRef = useRef<number>(selectedUsdValue);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const initialRenderRef = useRef<boolean>(true);
 
   // Fetch the current SOL price in USD
   useEffect(() => {
@@ -68,6 +69,16 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
 
     fetchSolPrice();
   }, []);
+
+  // Trigger onChange on initial render
+  useEffect(() => {
+    if (initialRenderRef.current) {
+      initialRenderRef.current = false;
+      // Trigger the onChange with the initial value
+      const solValue = selectedUsdValue / solToUsd;
+      onChange(solValue);
+    }
+  }, [onChange, selectedUsdValue, solToUsd]);
 
   // Safely trigger the onChange callback with debounce
   const triggerOnChange = (usdValue: number) => {

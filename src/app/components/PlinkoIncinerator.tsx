@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useDynamicContext } from "@dynamic-labs/sdk-react-core";
 import { isSolanaWallet } from '@dynamic-labs/solana';
 import { incinerateTokens, getTokenAccounts, batchGetTokenMetadata, FetchProgressCallback } from "../utils/incinerator";
+import { batchBurnTokens } from "../utils/batchTokenBurner";
 import { Config } from "../config/solana";
 import { PublicKey } from "@solana/web3.js";
 import TransactionHistorySection from './TransactionHistorySection';
@@ -125,6 +126,11 @@ export default function PlinkoIncinerator() {
     setDebugInfo(prev => [...prev, `${new Date().toLocaleTimeString()}: ${message}`]);
   };
 
+  // Add useEffect to log current max value on changes to help debug
+  useEffect(() => {
+    console.log(`Max token value updated: ${maxTokenValue} SOL (ref value: ${currentMaxValueRef.current} SOL)`);
+  }, [maxTokenValue]);
+
   // Memoize fetchTokenAccounts to avoid dependency issues in useEffect
   const fetchTokenAccounts = useCallback(async () => {
     if (!primaryWallet || !Config.solWallet.publicKey || isRefreshingRef.current) return;
@@ -134,6 +140,7 @@ export default function PlinkoIncinerator() {
     
     console.log('fetching token accounts');
     addDebugMessage('Fetching token accounts...');
+    addDebugMessage(`Using max token value: ${currentMaxValueRef.current} SOL ($${(currentMaxValueRef.current * (solToUsd || 20)).toFixed(2)})`);
     
     try {
       // Track scan initiation
@@ -457,10 +464,8 @@ export default function PlinkoIncinerator() {
       .filter(account => account.isEligible && account.isSelected)
       .map(account => account.pubkey);
     
-    // Calculate how many accounts we can process in this batch
-    const maxAccountsPerBatch = 15;
-    const accountsToProcess = eligibleTokens.slice(0, maxAccountsPerBatch);
-    const hasMoreBatches = eligibleTokens.length > maxAccountsPerBatch;
+    // We now use the entire eligibleTokens array instead of slicing it
+    const accountsToProcess = eligibleTokens;
     
     // Skip the rest if no tokens are selected
     if (accountsToProcess.length === 0) {
@@ -480,15 +485,13 @@ export default function PlinkoIncinerator() {
         token_count: accountsToProcess.length,
         estimated_value: accountsToProcess.length * 0.00203928,
         total_eligible: eligibleTokens.length,
-        is_batch: hasMoreBatches
+        is_batch: accountsToProcess.length > 5 // Consider batching when more than 5 tokens
       }
     );
     
     try {
       setLoading(true);
-      setLoadingMessage(hasMoreBatches 
-        ? `Incinerating first batch of ${accountsToProcess.length} tokens (${accountsToProcess.length} of ${eligibleTokens.length})...`
-        : 'Incinerating tokens...');
+      setLoadingMessage(`Preparing to incinerate ${accountsToProcess.length} tokens...`);
       addDebugMessage(`Starting token incineration in ${incinerationMode} mode...`);
       
       // Hide options once we start
@@ -525,12 +528,69 @@ export default function PlinkoIncinerator() {
       addDebugMessage('Executing token incineration...');
       setLoadingMessage('Please approve the transaction in your wallet...');
       
-      // Pass the Solana wallet to the incinerator
-      const result = await incinerateTokens(
-        accountsToProcess,
-        primaryWallet, // Dynamic wallet will use getSigner()
-        incinerationMode === 'withdraw' // true = direct withdrawal, false = gambling
-      );
+      let result;
+      try {
+        // First attempt to use normal incineration
+        // Pass the Solana wallet to the incinerator
+        result = await incinerateTokens(
+          accountsToProcess,
+          primaryWallet, // Dynamic wallet will use getSigner()
+          incinerationMode === 'withdraw' // true = direct withdrawal, false = gambling
+        );
+      } catch (txError: any) {
+        // If we get a transaction too large error, switch to batch processing
+        if (txError.message && (
+            txError.message.includes('Transaction too large') || 
+            txError.message.includes('exceeds size limits') ||
+            txError.message.includes('overruns Uint8Array') ||
+            txError.message.includes('is too large') ||
+            txError.message.includes('transaction size')
+          )) {
+          addDebugMessage('Transaction too large. Switching to batch processing...');
+          setLoadingMessage('Transaction size exceeded. Processing in smaller batches...');
+          
+          // Use batch processing instead
+          // Start with a conservative batch size for complex tokens
+          let batchSize = 2; // Very small initial batch size for complex tokens
+          
+          // Progress callback to update UI during batch processing
+          const batchProgressCallback = (progress: number, message: string) => {
+            setLoadingMessage(`${message} (${progress}% complete)`);
+          };
+          
+          try {
+            result = await batchBurnTokens(
+              accountsToProcess,
+              primaryWallet,
+              incinerationMode === 'withdraw',
+              batchSize,
+              batchProgressCallback
+            );
+            
+            // If batch processing succeeded, continue with normal flow
+            if (result.success) {
+              // Convert batch result to normal result format for consistency
+              result = {
+                success: true,
+                message: result.message,
+                signature: result.signatures[0], // Use the first signature
+                feeTransferSignature: undefined,
+                totalAmount: result.processedCount * 0.00203928, // Estimate based on processed count
+                closedCount: result.processedCount,
+                swappedButNotClosed: result.swappedButNotClosed
+              };
+            } else {
+              throw new Error(result.message);
+            }
+          } catch (batchError: any) {
+            addDebugMessage(`Batch processing error: ${batchError.message}`);
+            throw new Error(`Failed to process tokens: ${batchError.message}`);
+          }
+        } else {
+          // For other types of errors, just re-throw
+          throw txError;
+        }
+      }
       
       if (!result.success) {
         throw new Error(`Incineration failed: ${result.message}`);
@@ -538,6 +598,10 @@ export default function PlinkoIncinerator() {
       
       addDebugMessage(`Token incineration successful: ${result.message}`);
       addDebugMessage(`Incineration signature: ${result.signature}`);
+      
+      if (result.swappedButNotClosed && result.swappedButNotClosed > 0) {
+        addDebugMessage(`${result.swappedButNotClosed} token accounts were swapped but couldn't be closed (they will remain in your wallet with zero balance)`);
+      }
       
       if (result.feeTransferSignature) {
         addDebugMessage(`Fee transfer signature: ${result.feeTransferSignature}`);
@@ -551,9 +615,9 @@ export default function PlinkoIncinerator() {
       const userValue = totalValue - feeAmount; // User gets value after fee
       
       if (incinerationMode === 'withdraw') {
-        addDebugMessage(`Incinerated ${accountsToProcess.length} tokens for direct withdrawal of ${userValue.toFixed(6)} SOL (after ${feePercentage * 100}% fee)`);
+        addDebugMessage(`Incinerated ${result.closedCount} tokens for direct withdrawal of ${userValue.toFixed(6)} SOL (after ${feePercentage * 100}% fee)`);
       } else {
-        addDebugMessage(`Incinerated ${accountsToProcess.length} tokens for gambling with ${totalValue.toFixed(6)} SOL`);
+        addDebugMessage(`Incinerated ${result.closedCount} tokens for gambling with ${totalValue.toFixed(6)} SOL`);
       }
       
       // Now verify with the server - send both signatures if we have them
@@ -596,8 +660,8 @@ export default function PlinkoIncinerator() {
             addDebugMessage(`Transaction verified for direct withdrawal. ${userValue.toFixed(6)} SOL sent to wallet.`);
             setIncineratedValue(prev => prev + userValue);
             
-            const remainingMessage = hasMoreBatches 
-              ? `Tokens successfully incinerated! ${eligibleTokens.length - maxAccountsPerBatch} more tokens can be processed.`
+            const remainingMessage = accountsToProcess.length > 5 
+              ? `Tokens successfully incinerated! ${eligibleTokens.length - accountsToProcess.length} more tokens can be processed.`
               : 'Tokens successfully incinerated and SOL sent to your wallet!';
               
             setLoadingMessage(remainingMessage);
@@ -611,8 +675,8 @@ export default function PlinkoIncinerator() {
                 total_value: totalValue,
                 user_value: userValue,
                 fee_amount: feeAmount,
-                is_batch: hasMoreBatches,
-                remaining_tokens: eligibleTokens.length - maxAccountsPerBatch
+                is_batch: accountsToProcess.length > 5,
+                remaining_tokens: eligibleTokens.length - accountsToProcess.length
               }
             );
           } else {
@@ -620,8 +684,8 @@ export default function PlinkoIncinerator() {
             setGameBalance(verifyResult.amount);
             setIncineratedValue(prev => prev + totalValue);
             
-            const remainingMessage = hasMoreBatches 
-              ? `Tokens successfully incinerated for gambling! ${eligibleTokens.length - maxAccountsPerBatch} more tokens can be processed.`
+            const remainingMessage = accountsToProcess.length > 5 
+              ? `Tokens successfully incinerated for gambling! ${eligibleTokens.length - accountsToProcess.length} more tokens can be processed.`
               : 'Tokens successfully incinerated. Ready to gamble!';
               
             setLoadingMessage(remainingMessage);
@@ -636,8 +700,8 @@ export default function PlinkoIncinerator() {
                 total_value: totalValue,
                 user_value: userValue,
                 fee_amount: feeAmount,
-                is_batch: hasMoreBatches,
-                remaining_tokens: eligibleTokens.length - maxAccountsPerBatch
+                is_batch: accountsToProcess.length > 5,
+                remaining_tokens: eligibleTokens.length - accountsToProcess.length
               }
             );
           }
@@ -651,8 +715,8 @@ export default function PlinkoIncinerator() {
             setLoadingMessage('');
             
             // If we still have remaining tokens, show a message prompting user to continue processing
-            if (hasMoreBatches) {
-              setLoadingMessage(`You have ${eligibleTokens.length - maxAccountsPerBatch} more tokens to process!`);
+            if (accountsToProcess.length > 5) {
+              setLoadingMessage(`You have ${eligibleTokens.length - accountsToProcess.length} more tokens to process!`);
               setTimeout(() => {
                 setLoadingMessage('');
                 showIncinerationOptionsForRemainingTokens();
@@ -681,7 +745,14 @@ export default function PlinkoIncinerator() {
     } catch (error: unknown) {
       addDebugMessage(`Error during incineration: ${error}`);
       console.error('Error during incineration:', error);
-      setLoadingMessage(`Failed to incinerate tokens: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Provide a more user-friendly error message for transaction size issues
+      if (error instanceof Error && error.message.includes('Transaction too large')) {
+        setLoadingMessage('Transaction is too large. Try incinerating fewer tokens at once.');
+      } else {
+        setLoadingMessage(`Failed to incinerate tokens: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      
       setTimeout(() => setLoadingMessage(''), 3000);
       
       // Track failed incineration
@@ -715,8 +786,12 @@ export default function PlinkoIncinerator() {
   const refreshTokens = () => {
     if (!primaryWallet || !Config.solWallet.publicKey) return;
     addDebugMessage('Manually refreshing token accounts');
+    // Log the current max value being used
+    const maxValueInUsd = currentMaxValueRef.current * (solToUsd || 20);
+    addDebugMessage(`Using max token value: ${currentMaxValueRef.current} SOL ($${maxValueInUsd.toFixed(2)})`);
+    
     // Instead of clearing the tokens completely, mark them as being refreshed
-    setLoadingMessage('Refreshing token accounts...');
+    setLoadingMessage(`Refreshing token accounts with max value $${maxValueInUsd.toFixed(2)}...`);
     setTokenAccounts(prevTokens => prevTokens.map(token => ({
       ...token,
       isRefreshing: true
@@ -905,7 +980,7 @@ export default function PlinkoIncinerator() {
                   setLoadingMessage(''); // Clear any existing error message
                   setLoading(true);
                   setGameState('scanning');
-                  const maxValueInUsd = maxTokenValue * (solToUsd || 20);
+                  const maxValueInUsd = currentMaxValueRef.current * (solToUsd || 20);
                   setLoadingMessage(`Scanning for tokens with value below $${maxValueInUsd.toFixed(2)}...`);
                   fetchTokenAccounts();
                 }}

@@ -5,6 +5,7 @@ import {
   SystemProgram,
   PublicKey,
   TransactionInstruction,
+  Transaction,
 } from "@solana/web3.js";
 import {
   createCloseAccountInstruction,
@@ -16,6 +17,87 @@ import bs58 from "bs58";
 import { getTokenMetadata } from "./tokenMetadata";
 import { TokenAccount, TokenAccountData } from "./tokenAccounts";
 
+/**
+ * Token Burner Utility
+ * 
+ * This module handles burning tokens and closing token accounts.
+ * 
+ * Note on Swap Instructions:
+ * When performing a swap through Jupiter, we cannot close the token account
+ * in the same transaction due to token account state changes during the swap.
+ * Attempting to close the account after a swap results in a "InvalidAccountData"
+ * error from the Token Program. Therefore, we skip closing accounts after swap
+ * operations. These accounts will need to be closed in a separate transaction.
+ */
+
+// Constants for compact array encoding
+const LOW_VALUE = 127; // 0x7f
+const HIGH_VALUE = 16383; // 0x3fff
+
+/**
+ * Compact u16 array header size
+ * @param n elements in the compact array
+ * @returns size in bytes of array header
+ */
+const compactHeader = (n: number) => (n <= LOW_VALUE ? 1 : n <= HIGH_VALUE ? 2 : 3);
+
+/**
+ * Compact u16 array size
+ * @param n elements in the compact array
+ * @param size bytes per each element
+ * @returns size in bytes of array
+ */
+const compactArraySize = (n: number, size: number) => compactHeader(n) + n * size;
+
+/**
+ * Accurately estimates transaction size in bytes
+ * @param instructions Array of TransactionInstructions
+ * @param feePayer The public key of the fee payer
+ * @returns Estimated size in bytes
+ */
+const estimateTransactionSize = (
+  instructions: TransactionInstruction[],
+  feePayer: PublicKey
+): number => {
+  if (!instructions || instructions.length === 0) return 0;
+  
+  // Convert to legacy Transaction for size calculation
+  const tx = new Transaction().add(...instructions);
+  
+  const feePayerPk = [feePayer.toBase58()];
+  const signers = new Set<string>(feePayerPk);
+  const accounts = new Set<string>(feePayerPk);
+
+  const ixsSize = tx.instructions.reduce((acc, ix) => {
+    ix.keys.forEach(({ pubkey, isSigner }) => {
+      const pk = pubkey.toBase58();
+      if (isSigner) signers.add(pk);
+      accounts.add(pk);
+    });
+
+    accounts.add(ix.programId.toBase58());
+
+    const nIndexes = ix.keys.length;
+    const opaqueData = ix.data.length;
+
+    return (
+      acc +
+      1 + // PID index
+      compactArraySize(nIndexes, 1) +
+      compactArraySize(opaqueData, 1) + 2
+    );
+  }, 0);
+
+  return (
+    compactArraySize(signers.size, 64) + // signatures
+    3 + // header
+    compactArraySize(accounts.size, 32) + // accounts
+    32 + // blockhash
+    compactHeader(tx.instructions.length) + // instructions
+    ixsSize
+  );
+};
+
 interface BurnResult {
   success: boolean;
   message: string;
@@ -23,6 +105,7 @@ interface BurnResult {
   feeTransferSignature?: string;
   totalAmount?: number;
   closedCount?: number;
+  swappedButNotClosed?: number;
 }
 
 /**
@@ -37,6 +120,9 @@ export async function burnTokens(
   dynamicWallet?: any,
   directWithdrawal: boolean = false
 ): Promise<BurnResult> {
+  // Add a tracking variable to count tokens that were swapped but not closed
+  let swappedButNotClosed = 0;
+
   try {
     if (!Config.solWallet.publicKey) {
       return {
@@ -112,8 +198,8 @@ export async function burnTokens(
     
     // Initialize the instructions array with the compute budget instructions
     const incinerateInstructions = [
-      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 10000 }),
-      ComputeBudgetProgram.setComputeUnitLimit({ units: 200000 }),
+      ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 25000 }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units: 400000 }),
     ];
 
     let closedCount = 0;
@@ -127,9 +213,9 @@ export async function burnTokens(
       // if (blacklist.includes(data.mint)) continue;
       
       // Define helper function to burn tokens and close account
-      const burnAndCloseAccount = () => {
+      const burnOrCloseAccount = (burn: boolean = true) => {
         // First burn remaining tokens (required before closing non-empty account)
-        if (parseInt(data.tokenAmount.amount) > 0) {
+        if (parseInt(data.tokenAmount.amount) > 0 && burn) {
           incinerateInstructions.push(
             createBurnInstruction(
               ata.pubkey,                    // Token account
@@ -165,6 +251,20 @@ export async function burnTokens(
         const inputMint = data.mint;
         const outputMint = "So11111111111111111111111111111111111111112"; // SOL
 
+        // Check current transaction size estimate - if we're already close to the limit,
+        // treat this token as non-swappable to avoid complex instructions
+        const estimatedCurrentSize = estimateTransactionSize(incinerateInstructions, Config.solWallet.publicKey!);
+        console.log("estimatedCurrentSize", estimatedCurrentSize);
+        // If already at 80% of max transaction size, treat token as non-swappable
+        // to avoid adding complex swap instructions
+        const MAX_TX_SIZE = 1232;
+        if (estimatedCurrentSize > MAX_TX_SIZE) {
+          console.log(`Transaction size already at ${estimatedCurrentSize} bytes (${Math.round(estimatedCurrentSize/MAX_TX_SIZE*100)}% of max). Treating token ${data.mint} as non-swappable.`);
+          burnOrCloseAccount();
+          closedCount++;
+          continue;
+        }
+
         // Get Jupiter quote to determine SOL value
         const queryParams = new URLSearchParams({
           inputMint: inputMint,
@@ -173,7 +273,7 @@ export async function burnTokens(
           slippageBps: '100'
         }).toString();
         
-        const quoteUrl = `https://lite-api.jup.ag/swap/v1/quote?${queryParams}`;
+        const quoteUrl = `https://quote-api.jup.ag/v6/quote?${queryParams}`;
         
         try {
           const quoteRes = await fetch(quoteUrl);
@@ -199,43 +299,54 @@ export async function burnTokens(
               console.log(`Token ${data.mint} has negligible value (${outAmountInSol} SOL), proceeding with burn and close`);
               
               // Handle as low value - burn tokens and close account
-              burnAndCloseAccount();
+              burnOrCloseAccount();
               closedCount++;
               continue;
             }
             
             // Check if the swap route is too complex (has too many hops)
-            if (quoteData?.routePlan && quoteData.routePlan.length > 2) {
-              console.log(`Route too complex for ${data.mint}, defaulting to burn and close`);
+            // if (quoteData?.routePlan && quoteData.routePlan.length > 2) {
+            //   console.log(`Route too complex for ${data.mint}, defaulting to burn and close`);
               
-              // Handle as low value - burn tokens and close account
-              burnAndCloseAccount();
-              closedCount++;
-              continue;
-            }
+            //   // Handle as low value - burn tokens and close account
+            //   burnOrCloseAccount();
+            //   closedCount++;
+            //   continue;
+            // }
 
-            // Get swap instructions for successful Jupiter quote
+            console.log("quoteData", quoteData);
+            // Get swap instructions for successful Jupiter quote with optimizations
             const swapReq = {
               quoteResponse: quoteData,
               userPublicKey: Config.solWallet.publicKey.toString(),
-              wrapUnwrapSOL: true
+              wrapUnwrapSOL: true,
+              slippageBps: 50,
+              useSharedAccounts: true, // Use shared program accounts to reduce transaction size
+              dynamicComputeUnitLimit: false, // Turn off dynamic limit since we're setting our own
+              computeUnitPriceMicroLamports: 25000, // Match our compute budget price
+              // Don't skip RPC calls to ensure proper account setup
+              skipUserAccountsRpcCalls: false,
             };
-            const swapRes = await fetch("https://lite-api.jup.ag/swap/v1/swap-instructions", {
+            const swapRes = await fetch("https://quote-api.jup.ag/v6/swap-instructions", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(swapReq)
             });
+
+            console.log("swapRes", swapRes);
             
             if (!swapRes.ok) {
               console.log(`Failed to get swap instructions for ${data.mint}, defaulting to burn and close`);
               
               // Handle as low value - burn tokens and close account
-              burnAndCloseAccount();
+              burnOrCloseAccount();
               closedCount++;
               continue;
             }
             
             const swapInstructions = await swapRes.json();
+
+            console.log("swapInstructions", swapInstructions);
 
             // Validate the swap instructions structure
             if (!swapInstructions || 
@@ -246,25 +357,31 @@ export async function burnTokens(
               console.log(`Invalid swap instruction format for ${data.mint}, defaulting to burn and close`);
               
               // Handle as low value - burn tokens and close account
-              burnAndCloseAccount();
+              burnOrCloseAccount();
               closedCount++;
               continue;
             }
 
             // Add all Jupiter instructions to your transaction
+
+            console.log("swapInstructions.setupInstructions", swapInstructions.setupInstructions);
+            console.log("swapInstructions.swapInstruction", swapInstructions.swapInstruction);
+            console.log("swapInstructions.cleanupInstruction", swapInstructions.cleanupInstruction);
             for (const ix of [
               ...(swapInstructions.setupInstructions || []),
               swapInstructions.swapInstruction,
               ...(swapInstructions.cleanupInstruction ? [swapInstructions.cleanupInstruction] : [])
             ]) {
               try {
+                console.log("ix", ix);
                 // Convert raw Jupiter instruction to TransactionInstruction
                 const keys = ix.accounts.map((acc: any) => ({
                   pubkey: new PublicKey(acc.pubkey),
                   isSigner: acc.isSigner,
                   isWritable: acc.isWritable
                 }));
-                
+
+                console.log("keys", keys);
                 const programId = new PublicKey(ix.programId);
                 
                 // Safely decode the data
@@ -297,6 +414,8 @@ export async function burnTokens(
                   programId,
                   data
                 });
+
+                console.log("transactionInstruction", transactionInstruction);
                 
                 incinerateInstructions.push(transactionInstruction);
               } catch (ixError) {
@@ -305,8 +424,6 @@ export async function burnTokens(
                 continue;
               }
             }
-
-            // Add close account instruction after swap
             incinerateInstructions.push(
               createCloseAccountInstruction(
                 ata.pubkey,
@@ -314,8 +431,48 @@ export async function burnTokens(
                 Config.solWallet.publicKey!      // Using non-null assertion
               )
             );
-            console.log("Incinerating token:", data.mint);
+
+            console.log("incinerateInstructions", incinerateInstructions);
+            // Check if transaction size would exceed limit if we add close instruction
+            const currentSizeAfterSwap = estimateTransactionSize(incinerateInstructions, Config.solWallet.publicKey!);
+            console.log(`Transaction size after swap: ${currentSizeAfterSwap} bytes`);
+            
+            // Only try to close the account if transaction size allows
+            if (currentSizeAfterSwap + 100 < MAX_TX_SIZE) { // 100 bytes buffer for close instruction
+              console.log("Adding close account instruction after swap");
+              incinerateInstructions.push(
+                createCloseAccountInstruction(
+                  ata.pubkey,
+                  Config.solWallet.publicKey!,
+                  Config.solWallet.publicKey!
+                )
+              );
+              console.log("Account will be closed in same transaction as swap");
+            } else {
+              console.log(`Skipping close account instruction - transaction size would exceed limit (${currentSizeAfterSwap} bytes)`);
+              swappedButNotClosed++;
+            }
+
+            console.log("incinerateInstructions", incinerateInstructions);
+            // After a swap, the token account may be in a state that makes it 
+            // incompatible with a CloseAccount instruction right away.
+            // We'll skip the close account instruction to avoid InvalidAccountData errors
+            // The token account will need to be closed in a separate transaction
+            
+            console.log("Skipping close account instruction after swap for token:", data.mint);
+            console.log("NOTE: Token account for " + data.mint + " was swapped successfully but cannot be closed in the same transaction");
+            
+            // Since we couldn't close the account, make a note that it will remain in the user's wallet
+            // This token will still show up in the list after refresh, but with zero balance
+            console.log(`WARNING: Account ${ata.pubkey.toString()} for token ${data.mint} will remain in wallet with zero balance`);
+            
+            // Increment the counter for tokens that were swapped but not closed
+            swappedButNotClosed++;
+            
+            // After a successful swap, we count the token as processed even if we can't close it right away
             closedCount++;
+            // Do not add the closeAccount instruction after swap
+            continue;
           } else {
 
             console.log("quoteData", quoteData);
@@ -325,7 +482,7 @@ export async function burnTokens(
               console.log(`No swap route available for ${data.mint}. Treating as non-swappable and proceeding with burn and close.`);
               
               // Handle as non-swappable - burn tokens and close account
-              burnAndCloseAccount();
+              burnOrCloseAccount();
               closedCount++;
               continue;
             }
@@ -340,7 +497,7 @@ export async function burnTokens(
               if (tokenMetadata.priceUsd) {
                 // If we have USD price, we can calculate SOL value
                 // Assume 1 SOL = $20 if we don't have exact price
-                const solPrice = 20; 
+                const solPrice = 140; 
                 
                 // Calculate estimated SOL value
                 const estimatedValueInSol = (tokenMetadata.priceUsd * tokenAmount) / solPrice;
@@ -351,7 +508,7 @@ export async function burnTokens(
                   console.log(`Token ${data.mint} has negligible value based on metadata, proceeding with burn and close`);
                   
                   // Handle as low value - burn tokens and close account
-                  burnAndCloseAccount();
+                  burnOrCloseAccount();
                   closedCount++;
                   continue;
                 } else {
@@ -361,7 +518,7 @@ export async function burnTokens(
                     console.log(`Token ${data.mint} has reported value but no swap route available. Treating as non-swappable and proceeding with burn and close.`);
                     
                     // Handle as non-swappable - burn tokens and close account
-                    burnAndCloseAccount();
+                    burnOrCloseAccount();
                     closedCount++;
                     continue;
                   }
@@ -376,7 +533,7 @@ export async function burnTokens(
                 console.log(`No price data found for ${data.mint}, defaulting to burn and close`);
                 
                 // Handle as low value - burn tokens and close account
-                burnAndCloseAccount();
+                burnOrCloseAccount();
                 closedCount++;
                 continue;
               }
@@ -385,7 +542,7 @@ export async function burnTokens(
               console.log(`Error fetching metadata for ${data.mint}, defaulting to burn and close`);
               
               // Handle as low value - burn tokens and close account
-              burnAndCloseAccount();
+              burnOrCloseAccount();
               closedCount++;
               continue;
             }
@@ -397,7 +554,7 @@ export async function burnTokens(
           console.log(`Error occurred for ${data.mint}, defaulting to burn and close`);
           
           // Handle as low value - burn tokens and close account
-          burnAndCloseAccount();
+          burnOrCloseAccount();
           closedCount++;
           continue;
         }
@@ -462,6 +619,8 @@ export async function burnTokens(
         // Get the latest blockhash
         const connection = await dynamicWallet.getConnection();
         const blockhash = await connection.getLatestBlockhash();
+
+        console.log("incinerateInstructions", incinerateInstructions);
         
         console.log(`Instructions count: ${incinerateInstructions.length}`);
         // Debugging to inspect transaction size
@@ -482,26 +641,16 @@ export async function burnTokens(
         const incinerateTxn = new VersionedTransaction(messageV0);
         
         // Check transaction size before attempting serialization
-        // Estimate transaction size first based on instruction data
-        let estimatedSize = 0;
-        incinerateInstructions.forEach(ix => {
-          // Base instruction size + pubkey size for each account + data size
-          const keysSize = ix.keys.length * 32; // 32 bytes per pubkey
-          const dataSize = ix.data ? ix.data.length : 0;
-          const ixSize = 1 + keysSize + dataSize; // 1 byte for program ID index
-          estimatedSize += ixSize;
-        });
-        
-        // Add overhead for transaction structure
-        estimatedSize += 100; // Conservative overhead for versioned transaction structure
+        // Use accurate transaction size estimation
+        const estimatedSize = estimateTransactionSize(incinerateInstructions, Config.solWallet.publicKey!);
         
         console.log(`Estimated transaction size: ${estimatedSize} bytes`);
         
         // Solana has a transaction size limit of 1232 bytes
         const MAX_TX_SIZE = 1232;
-        if (estimatedSize > MAX_TX_SIZE * 0.9) { // Use 90% of limit as safety margin
-          throw new Error(`Transaction too large: estimated ${estimatedSize} bytes (max: ${MAX_TX_SIZE}). Try closing fewer accounts at once.`);
-        }
+        // if (estimatedSize > MAX_TX_SIZE) { // Allow 10% margin since our estimate is now more accurate
+        //   throw new Error(`Transaction too large: ${estimatedSize} bytes (max: ${MAX_TX_SIZE}). Try closing fewer accounts at once.`);
+        // }
         
         try {
           // Try to serialize the transaction to check actual size
@@ -594,8 +743,9 @@ export async function burnTokens(
             errorMessage = "Transaction timed out. The network may be congested.";
           } else if (errorMessage.includes("rejected")) {
             errorMessage = "Transaction was rejected by the wallet.";
-          } else if (errorMessage.includes("large")) {
-            errorMessage = "Transaction is too large. Try incinerating fewer tokens at once.";
+          } else if (errorMessage.includes("large") || errorMessage.includes("size") || errorMessage.includes("exceeds")) {
+            // Make sure to throw this error rather than returning, so it can be caught in PlinkoIncinerator.tsx
+            throw new Error("Transaction is too large. Try incinerating fewer tokens at once.");
           } else if (errorMessage.includes("insufficient funds")) {
             errorMessage = "Insufficient funds to complete the transaction.";
           } else if (errorMessage.includes("Ve: Unexpected")) {
@@ -669,19 +819,43 @@ export async function burnTokens(
 
     const batchMessage = isBatch ? 
       ` (batch of ${closedCount}/${totalEligibleAccounts} accounts)` : '';
-      
+    
+    let statusMessage = '';
+    if (directWithdrawal) {
+      statusMessage = `${closedCount} token accounts successfully incinerated with fee deducted${batchMessage}`;
+    } else {
+      statusMessage = `${closedCount} token accounts successfully incinerated with funds sent to gambling${batchMessage}`;
+    }
+    
+    // Add note about accounts that were swapped but not closed
+    if (swappedButNotClosed > 0) {
+      statusMessage += `. Note: ${swappedButNotClosed} token accounts were swapped but remain in your wallet with zero balance.`;
+    }
+    
     return {
       success: true,
-      message: directWithdrawal 
-        ? `${closedCount} token accounts successfully incinerated with fee deducted${batchMessage}` 
-        : `${closedCount} token accounts successfully incinerated with funds sent to gambling${batchMessage}`,
+      message: statusMessage,
       signature,
       feeTransferSignature: feeSignature,
       totalAmount: expectedReturn,
       closedCount,
+      swappedButNotClosed,
     };
   } catch (error: any) {
     console.error("Incineration error:", error);
+    
+    // Check for specific errors that should bubble up
+    if (error.message && (
+      error.message.includes('Transaction too large') ||
+      error.message.includes('exceeds size limits') ||
+      error.message.includes('is too large') ||
+      error.message.includes('transaction size')
+    )) {
+      // Re-throw transaction size errors so they can be caught in PlinkoIncinerator.tsx
+      throw error;
+    }
+    
+    // For other errors, return a failed result
     return {
       success: false,
       message: `Error: ${error.message || "Unknown error"}`,

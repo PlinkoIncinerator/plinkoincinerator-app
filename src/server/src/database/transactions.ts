@@ -1,5 +1,6 @@
 import pool from './db';
 import { ensureDatabaseExists } from './dbInitialization';
+import { runMigrations } from './migrations';
 
 interface DepositRecord {
   id?: number;
@@ -10,6 +11,7 @@ interface DepositRecord {
   timestamp: Date;
   is_gambling: boolean;
   is_processed: boolean;
+  swapped_value?: number; // Amount of SOL from token swaps
 }
 
 interface GameResultRecord {
@@ -163,6 +165,10 @@ export async function initializeDatabase() {
     } finally {
       client.release();
     }
+    
+    // Run migrations after tables are created
+    await runMigrations();
+    
   } catch (error) {
     console.error('Failed to initialize database:', error);
     throw error;
@@ -312,14 +318,14 @@ export async function saveDeposit(deposit: DepositRecord): Promise<DepositRecord
   try {
     const client = await pool.connect();
     try {
-      const { wallet_address, signature, fee_signature, amount, is_gambling, is_processed } = deposit;
+      const { wallet_address, signature, fee_signature, amount, is_gambling, is_processed, swapped_value } = deposit;
       
       const result = await client.query(
         `INSERT INTO deposits 
-         (wallet_address, signature, fee_signature, amount, is_gambling, is_processed) 
-         VALUES ($1, $2, $3, $4, $5, $6)
+         (wallet_address, signature, fee_signature, amount, is_gambling, is_processed, swapped_value) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [wallet_address, signature, fee_signature, amount, is_gambling, is_processed]
+        [wallet_address, signature, fee_signature, amount, is_gambling, is_processed, swapped_value || 0]
       );
       
       return result.rows[0];
