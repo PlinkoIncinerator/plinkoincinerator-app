@@ -369,7 +369,7 @@ export default function PlinkoIncinerator() {
       // Reset the flag when done
       isRefreshingRef.current = false;
     }
-  }, [primaryWallet, maxTokenValue, solToUsd, feePercentage]);
+  }, [primaryWallet, solToUsd, feePercentage]);
 
   // Reset states when wallet changes
   useEffect(() => {
@@ -564,7 +564,7 @@ export default function PlinkoIncinerator() {
           
           // Use batch processing instead
           // Use a higher initial batch size since our improved strategy sorts by complexity
-          let batchSize = 15; // Will be adjusted based on token account types
+          const batchSize = 15; // Will be adjusted based on token account types
           
           // Progress callback to update UI during batch processing
           const batchProgressCallback = (progress: number, message: string) => {

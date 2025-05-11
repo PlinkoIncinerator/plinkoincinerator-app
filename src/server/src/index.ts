@@ -54,9 +54,9 @@ const io = new Server(server, {
   },
   path: '/api/socket/io/',
   transports: ['websocket'],
-  pingInterval: 25000,
-  pingTimeout: 20000,
-  connectTimeout: 20000,
+  pingInterval: 25000, // 25 seconds
+  pingTimeout: 20000, // 20 seconds
+  connectTimeout: 20000, // 20 seconds
   cookie: {
     name: 'plinko_io',
     httpOnly: true,

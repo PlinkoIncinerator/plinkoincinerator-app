@@ -78,7 +78,7 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
       const solValue = selectedUsdValue / solToUsd;
       onChange(solValue);
     }
-  }, [onChange, selectedUsdValue, solToUsd]);
+  }, [onChange, solToUsd]);
 
   // Safely trigger the onChange callback with debounce
   const triggerOnChange = (usdValue: number) => {
