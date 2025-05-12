@@ -2,7 +2,6 @@
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import Matter from "matter-js";
-import { log } from "console";
 
 interface PlinkoBoardProps {
   rows?: number;
