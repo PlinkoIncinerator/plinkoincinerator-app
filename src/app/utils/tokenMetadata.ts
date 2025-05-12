@@ -310,7 +310,6 @@ async function fetchTokenInfo(mintAddress: string, walletPublicKey?: string): Pr
     
     // Use Jupiter's token info endpoint
     const jupiterResponse = await fetch(`https://lite-api.jup.ag/tokens/v1/token/${mintAddress}`);
-    console.log("jupiterResponse", jupiterResponse);
     
     if (!jupiterResponse.ok) {
       console.log(`No Jupiter token info found for ${mintAddress}`);
@@ -322,8 +321,6 @@ async function fetchTokenInfo(mintAddress: string, walletPublicKey?: string): Pr
       console.log(`No token info data for ${mintAddress}`);
       return null;
     }
-
-    console.log("tokenInfo", tokenInfo);
     
     // Check if token is frozen using our combined approach
     const isFrozen = await isTokenFrozen(mintAddress, walletPublicKey);
@@ -480,7 +477,6 @@ export async function batchGetTokenMetadata(mintAddresses: string[], walletPubli
   // Check for any mints still not in cache
   const remainingMints = mintAddresses.filter(mint => !tokenMetadataCache[mint]);
   if (remainingMints.length > 0) {
-    console.log(`Checking remaining ${remainingMints.length} tokens for frozen status`);
     
     // Create promises for all remaining mints to check in parallel
     const tokenPromises = remainingMints.map(async (mint) => {

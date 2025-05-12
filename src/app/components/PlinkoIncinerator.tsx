@@ -807,17 +807,6 @@ export default function PlinkoIncinerator() {
   const processedTokens = tokenAccounts.filter(account => account.isProcessed);
   const frozenTokens = tokenAccounts.filter(account => account.isFrozen === true);
   
-  console.log("PlinkoIncinerator frozenTokens", frozenTokens) 
-  console.log("PlinkoIncinerator eligibleTokens", eligibleTokens)
-  console.log("PlinkoIncinerator processedTokens", processedTokens)
-  console.log("PlinkoIncinerator selectedTokens", selectedTokens)
-  console.log("PlinkoIncinerator tokenAccounts", tokenAccounts)
-  // Show processed tokens in the UI but mark them differently
-  const allDisplayTokens = [...eligibleTokens, ...processedTokens, ...frozenTokens];
-  
-  // Log counts to help with debugging
-  console.log(`Token counts - Eligible: ${eligibleTokens.length}, Selected: ${selectedTokens.length}, Processed: ${processedTokens.length}, Frozen: ${frozenTokens.length}, Total: ${tokenAccounts.length}`);
-  
   // Calculate potential SOL from burning tokens
   const totalPotentialValue = selectedTokens.reduce((total, token) => {
     // Convert token USD value to SOL and add account closure value

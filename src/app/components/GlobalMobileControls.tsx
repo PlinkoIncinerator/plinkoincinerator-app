@@ -57,17 +57,7 @@ export default function GlobalMobileControls({
       plinkoService
     };
     
-    console.log('GlobalMobileControls: Props updated', {
-      walletAddress: walletAddress.substring(0, 8) + '...',
-      disabled,
-      currentBalance,
-      isTestMode,
-      testBalance,
-      onPlay: typeof onPlay === 'function' ? 'function' : 'not a function',
-      hasPlinkoService: !!plinkoService,
-      testModeChanged: previousIsTestMode !== isTestMode,
-      time: new Date().toISOString()
-    });
+   
   }, [walletAddress, onPlay, disabled, currentBalance, isTestMode, testBalance, plinkoService]);
   
   // Toggle expanded state using callback to avoid re-renders
@@ -81,8 +71,9 @@ export default function GlobalMobileControls({
     
     // Function to check if game is in viewport
     const checkGameVisibility = () => {
-      const gameElement = document.querySelector('.plinko-client-wrapper');
-      if (!gameElement) return;
+      // More specific selector to target the plinko board
+      const plinkoBoard = document.querySelector('.plinko-client-wrapper');
+      if (!plinkoBoard) return;
       
       const observer = new IntersectionObserver(
         (entries) => {
@@ -93,11 +84,11 @@ export default function GlobalMobileControls({
         {
           root: null,
           rootMargin: '0px',
-          threshold: 0.2 // Game is considered visible when 20% is in view
+          threshold: 0.5 // Game is considered visible when 50% is in view (middle of board)
         }
       );
       
-      observer.observe(gameElement);
+      observer.observe(plinkoBoard);
       
       return () => {
         observer.disconnect();
@@ -109,19 +100,17 @@ export default function GlobalMobileControls({
     
     // Set up scrolling event as a fallback
     const handleScroll = () => {
-      const gameElement = document.querySelector('.plinko-client-wrapper');
-      if (!gameElement) return;
+      const plinkoBoard = document.querySelector('.plinko-client-wrapper');
+      if (!plinkoBoard) return;
       
-      const rect = gameElement.getBoundingClientRect();
+      const rect = plinkoBoard.getBoundingClientRect();
       const windowHeight = window.innerHeight;
       
-      // Game is considered visible when at least part of it is in the viewport
-      const isVisible = 
-        (rect.top >= 0 && rect.top <= windowHeight) || 
-        (rect.bottom >= 0 && rect.bottom <= windowHeight) ||
-        (rect.top < 0 && rect.bottom > windowHeight);
+      // Consider the game visible when the middle of the board is in view
+      const boardMiddle = rect.top + (rect.height / 2);
+      const isMiddleVisible = boardMiddle >= 0 && boardMiddle <= windowHeight;
       
-      setIsGameVisible(isVisible);
+      setIsGameVisible(isMiddleVisible);
     };
     
     window.addEventListener('scroll', handleScroll);
@@ -155,13 +144,6 @@ export default function GlobalMobileControls({
     playCountRef.current += 1;
     const playCount = playCountRef.current;
     
-    console.log(`GlobalMobileControls: handlePlay called (#${playCount})`, {
-      options,
-      disabled: propsRef.current.disabled,
-      currentBalance: propsRef.current.currentBalance,
-      isTestMode: propsRef.current.isTestMode,
-      hasPlinkoService: !!propsRef.current.plinkoService
-    });
     
     // Try using plinkoService directly if available
     if (propsRef.current.plinkoService && !options.isTestMode) {

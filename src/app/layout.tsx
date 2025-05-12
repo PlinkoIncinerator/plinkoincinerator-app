@@ -6,6 +6,7 @@ import Script from "next/script";
 import GoogleAnalytics from "./components/GoogleAnalytics";
 import { Suspense } from "react";
 import ErrorBoundaryWrapper from "./components/ErrorBoundaryWrapper";
+import PWAProvider from "./components/PWAProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -26,6 +27,17 @@ export const metadata: Metadata = {
     description: "Burn empty Solana tokens, get SOL, play Plinko, lambo soon 🚀",
   },
   robots: "index, follow",
+  manifest: "/manifest.json",
+  themeColor: "#8B5CF6",
+  applicationName: "PlinkoIncinerator",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "PlinkoIncinerator",
+  },
+  formatDetection: {
+    telephone: false,
+  },
 };
 
 export default function RootLayout({
@@ -55,6 +67,11 @@ export default function RootLayout({
             `,
           }}
         />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="PlinkoIncinerator" />
+        <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <meta name="theme-color" content="#8B5CF6" />
       </head>
       <body className={inter.className}>
       <Script id="clarity-script" strategy="afterInteractive">
@@ -73,6 +90,7 @@ export default function RootLayout({
               <GoogleAnalytics />
             </Suspense>
             {children}
+            <PWAProvider />
           </ErrorBoundaryWrapper>
         </ClientWrapper>
       </body>

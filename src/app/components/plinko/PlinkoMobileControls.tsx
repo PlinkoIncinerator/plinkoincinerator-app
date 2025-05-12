@@ -85,14 +85,6 @@ export default function PlinkoMobileControls({
   isExpanded = false,
   onToggleExpand = () => {}
 }: PlinkoMobileControlsProps) {
-  // Add debug logs to see what props we're getting
-  console.log('PlinkoMobileControls RENDER:', { 
-    isTestMode, 
-    testBalance, 
-    currentBalance, 
-    walletAddress,
-    renderTime: new Date().toISOString()
-  });
 
   const minBetAmount = 0.0001;
   const [betAmount, setBetAmount] = useState<number>(minBetAmount);
@@ -189,8 +181,6 @@ export default function PlinkoMobileControls({
     ? testBalance  // In test mode, use testBalance directly
     : (balance?.currentBalance || minBetAmount);
 
-  console.log('Effective max bet amount:', maxBetAmount);
-
   // Add direct balance calculation to use in the UI - this ensures balance works in both modes
   const displayBalance = isTestMode 
     ? testBalance 
@@ -199,7 +189,6 @@ export default function PlinkoMobileControls({
   // Check if balance is insufficient for minimum bet - only in real mode
   const isBalanceInsufficient = !isTestMode && displayBalance < minBetAmount;
 
-  console.log('Display balance:', displayBalance);
 
   // Move the betSteps generation to be recalculated whenever maxBetAmount changes
   // Create a useEffect to regenerate betSteps when maxBetAmount changes
@@ -207,7 +196,6 @@ export default function PlinkoMobileControls({
 
   // Generate bet steps when maxBetAmount changes
   useEffect(() => {
-    console.log('Generating bet steps for maxBetAmount:', maxBetAmount);
     
     // Start with standard steps that are at or below the maxBetAmount
     const standardSteps = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 7.5, 10].filter(step => step <= maxBetAmount);
@@ -234,7 +222,6 @@ export default function PlinkoMobileControls({
     
     // Deduplicate and sort steps
     const uniqueSteps = [...new Set(standardSteps)].sort((a, b) => a - b);
-    console.log('Generated bet steps:', uniqueSteps);
     
     // Update the betSteps state
     setBetSteps(uniqueSteps);

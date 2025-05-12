@@ -21,13 +21,10 @@ const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
   );
 };
 
-export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSliderProps) {
+export default function AmountSlider({ onChange, initialAmount = 2.5 }: AmountSliderProps) {
   const valueOptionsUsd = [0, 2.5, 5, 10]; 
   
-  const [solToUsd, setSolToUsd] = useState<number>(20); // Default fallback value
-  
-  // Convert initial SOL value to USD for initial state
-  const initialUsdValue = initialAmount * solToUsd;
+  const [solToUsd, setSolToUsd] = useState<number>(140); // Default fallback value
   
   // Find closest initial value from our options
   const getClosestValue = (value: number) => {
@@ -36,8 +33,9 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
     );
   };
   
+  // Use the initialAmount directly as USD value
   const [selectedUsdValue, setSelectedUsdValue] = useState<number>(
-    getClosestValue(initialUsdValue)
+    getClosestValue(initialAmount)
   );
 
   // Add ref to store previous value to prevent duplicate updates
@@ -75,7 +73,6 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
       initialRenderRef.current = false;
       // Trigger the onChange with the initial USD value directly
       onChange(selectedUsdValue);
-      console.log(`AmountSlider: initial value ${selectedUsdValue} USD passed directly`);
     }
   }, [onChange, selectedUsdValue]);
 
@@ -99,7 +96,6 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
       // Pass the USD value directly instead of converting to SOL
       // This avoids double conversion issues
       onChange(usdValue);
-      console.log(`AmountSlider: passing value ${usdValue} USD directly`); 
     }, 300); // 300ms debounce
   };
 
