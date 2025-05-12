@@ -7,6 +7,8 @@ import Header from './components/Header';
 import Footer from './components/Footer';
 import PlinkoClientWrapper from './components/PlinkoClientWrapper';
 import WalletConnectButton from './components/WalletConnectButton';
+import TokenBanner from './components/TokenBanner';
+import LiveStatsWrapper from './components/LiveStatsWrapper';
 
 // Create a reusable component for the Solana logo
 const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
@@ -98,6 +100,7 @@ export default function Home() {
       
       <div className="min-h-screen bg-gradient-to-b from-gray-900 via-purple-900 to-black text-white">
         {/* Header */}
+        <TokenBanner />
         <Header />
         
         {/* Main content */}
@@ -149,10 +152,13 @@ export default function Home() {
                 <div className="text-xs text-gray-400">MAX PLINKO MULTIPLIER</div>
               </div>
             </div>
+            
+            {/* Live Stats Counter */}
+            <LiveStatsWrapper refreshInterval={30000} />
           </div>
 
           {/* Mobile Wallet Connect Button */}
-            <div className="md:hidden flex flex-col items-center justify-center mb-8">
+          <div className="md:hidden flex flex-col items-center justify-center mb-8">
             <div className="bg-gradient-to-r from-purple-600 via-pink-500 to-blue-600 p-[2px] rounded-xl animate-pulse hover:animate-none">
               <div className="bg-gray-900 rounded-xl p-4">
                 <WalletConnectButton />
