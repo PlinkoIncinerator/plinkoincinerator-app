@@ -44,7 +44,7 @@ export default function PlinkoGameClient({ initialBalance, onRegisterControls }:
   // All other state variables
   const [latestResult, setLatestResult] = useState<GameResult | null>(null);
   const [showResult, setShowResult] = useState(false);
-  const [currentPath, setCurrentPath] = useState<number[]>([]);
+  const [resultBin, setResultBin] = useState<number | null>(null);
   const [currentMultipliers, setCurrentMultipliers] = useState<number[]>(DEFAULT_MULTIPLIERS.medium);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -305,14 +305,16 @@ export default function PlinkoGameClient({ initialBalance, onRegisterControls }:
     });
     
     // Only start the game animation AFTER we have the path data
-    if (!result.path || result.path.length === 0) {
-      console.error('Received game result with empty path data');
-      setError('Invalid game result received - missing path data');
+    if (!result.gameResult) {
+      console.error('Received invalid game result');
+      setError('Invalid game result received');
       return;
     }
+
+    console.log('äääääääää#################Game result path:', result.gameResult);
     
     // First update path and result data and start a new ball
-    setCurrentPath(result.path);
+    setResultBin(result.gameResult);
     setLatestResult(result);
     
     // Show popup result after receiving game result
@@ -564,56 +566,20 @@ export default function PlinkoGameClient({ initialBalance, onRegisterControls }:
     if (options.isTestMode) {
       console.log('Running test mode game...');
       
-      // Save last options for potential re-use
       setLastOptions(options);
       
-      // Update testBalance with the play
       const updatedBalance = testBalance - options.betAmount;
       setTestBalance(updatedBalance);
       
-      // Get the multipliers for the risk mode
       const multipliers = plinkoService.getMultipliers(options.riskMode);
-      
-      // Randomize a path through the plinko board
-      const path: number[] = [];
-      let position = 8; // Start in the middle of 16 pins
-      
-      // Generate random path (this is just for visualization)
-      for (let i = 0; i < 16; i++) {
-        const direction = Math.random() > 0.5 ? 1 : -1;
-        position += direction;
-        
-        // Keep position within bounds
-        position = Math.max(0, Math.min(position, i + 1));
-        path.push(position);
-      }
-      
-      // Calculate landing bin (position of the last path item)
-      const binIndex = path[path.length - 1];
-      
-      // Get multiplier for that bin
-      const multiplier = multipliers[binIndex];
-      
-      // Calculate win amount
+      const binIndex = calculateTargetBucket(17);
+      const multiplier = multipliers[binIndex - 1];
       const winAmount = options.betAmount * multiplier;
-      
-      // Update test balance
+
       const finalBalance = updatedBalance + winAmount;
       setTestBalance(finalBalance);
       
-      // Add some randomness to the path to make it less predictable
-      const randomPath = path.map((pos, idx) => {
-        if (idx === 0) return pos; // Keep first position
-        
-        // Add small random variation
-        const variation = Math.random() > 0.7 ? (Math.random() > 0.5 ? 1 : -1) : 0;
-        let newPos = pos + variation;
-        
-        // Keep within bounds based on row number
-        newPos = Math.max(0, Math.min(newPos, idx + 1));
-        return newPos;
-      });
-      
+
       // Create a simulated result
       const result: GameResult = {
         clientSeed: gameState.clientSeed,
@@ -621,7 +587,6 @@ export default function PlinkoGameClient({ initialBalance, onRegisterControls }:
         hashedServerSeed: 'test-mode-hashed-seed',
         nonce: Math.floor(Math.random() * 10000),
         gameResult: binIndex,
-        path: randomPath,
         finalMultiplier: multiplier,
         betAmount: options.betAmount,
         winAmount: winAmount,
@@ -631,9 +596,8 @@ export default function PlinkoGameClient({ initialBalance, onRegisterControls }:
         rows: 16,
         isTestMode: true // Mark this as a test game
       };
-      
-      // Set the current path to animate the ball
-      setCurrentPath(randomPath);
+
+      setResultBin(binIndex);
       setLatestResult(result);
   
       // Show popup result (non-blocking)
@@ -749,6 +713,21 @@ export default function PlinkoGameClient({ initialBalance, onRegisterControls }:
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
   };
+
+  const calculateTargetBucket = (bucketCount: number) => {
+  const mean = (bucketCount + 1) / 2;
+  const stdDev = bucketCount / 4;
+
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+
+  const gaussian = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+  const result = Math.round(mean + stdDev * gaussian);
+
+  // Clamp between 1 and bucketCount (inclusive)
+  return Math.max(1, Math.min(bucketCount, result));
+}
   
   // Calculate pagination values
   const totalGames = gameState.gameHistory.length;
@@ -1007,7 +986,6 @@ export default function PlinkoGameClient({ initialBalance, onRegisterControls }:
           
           <div className={isMobileView ? 'h-full w-full overflow-hidden' : ''}>
             <PlinkoBoard
-              path={currentPath}
               isPlaying={true}
               onAnimationComplete={handleAnimationComplete}
               multipliers={currentMultipliers}

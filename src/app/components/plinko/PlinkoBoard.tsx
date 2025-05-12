@@ -5,14 +5,13 @@ import Matter from "matter-js";
 
 interface PlinkoBoardProps {
   rows?: number;
-  path: number[];
   isPlaying: boolean;
   onAnimationComplete?: () => void;
   multipliers: number[];
   riskMode: "low" | "medium" | "high";
   onAddBall?: (path: number[]) => void;
   ballId?: number;
-  resultBin?: number;
+  resultBin?: number | null;
 }
 
 const DESIGN_WIDTH = 1111;
@@ -115,20 +114,20 @@ function getRandomStartPositionForBin(
 
 export default function PlinkoBoard({
   rows = 16,
-  path = [],
   isPlaying = false,
   onAnimationComplete,
   multipliers,
   riskMode = "medium",
   onAddBall,
   ballId = 0,
-  resultBin = 9,
+  resultBin = null,
 }: PlinkoBoardProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
   const renderRef = useRef<Matter.Render | null>(null);
   const runnerRef = useRef<Matter.Runner | null>(null);
+  const [hitBinIndex, setHitBinIndex] = useState<number | null>(null);
 
   const cleanupPhysicsWorld = () => {
     if (renderRef.current) Matter.Render.stop(renderRef.current);
@@ -164,9 +163,16 @@ export default function PlinkoBoard({
         const { bodyA, bodyB } = pair;
 
         const pinBody = [bodyA, bodyB].find((b) => b.label === "pin");
+        const binBody = [bodyA, bodyB].find((b) => b.label === "floor");
+
         if (pinBody) {
           const { x, y } = pinBody.position;
           spawnHighlightEffect(x, y);
+        }
+
+        if (binBody) {
+          setHitBinIndex(resultBin);
+          setTimeout(() => setHitBinIndex(null), 300);
         }
       });
     });
@@ -213,6 +219,7 @@ export default function PlinkoBoard({
           collisionFilter: {
             category: mainCategory,
           },
+          label: "floor",
         }
       ),
     ]);
@@ -267,35 +274,33 @@ export default function PlinkoBoard({
   };
 
   function spawnHighlightEffect(x: number, y: number) {
-  const effect = Matter.Bodies.circle(x, y, 6, {
-    isStatic: true,
-    render: {
-      fillStyle: "rgba(255, 255, 255, 0.3)",
-    },
-    collisionFilter: {
-      category: 0x0004, // eigene Kategorie
-      mask: 0,          // mit nichts kollidieren
-    },
-    label: "pinEffect",
-  });
+    const effect = Matter.Bodies.circle(x, y, 6, {
+      isStatic: true,
+      render: {
+        fillStyle: "rgba(255, 255, 255, 0.3)",
+      },
+      collisionFilter: {
+        category: 0x0004,
+        mask: 0,
+      },
+      label: "pinEffect",
+    });
 
-  Matter.Composite.add(engineRef.current!.world, effect);
+    Matter.Composite.add(engineRef.current!.world, effect);
 
-  // Animationsschritte (z. B. größer werdender Effekt)
-  let scaleStep = 1.0;
-  const maxScale = 2.0;
-  const interval = setInterval(() => {
-    scaleStep += 0.1;
-    if (scaleStep >= maxScale) {
-      clearInterval(interval);
-      Matter.Composite.remove(engineRef.current!.world, effect);
-    } else {
-      Matter.Body.scale(effect, 1.1, 1.1);
-      effect.render.fillStyle = `rgba(255, 255, 255, ${1 - (scaleStep - 1)})`; // wird transparenter
-    }
-  }, 50); // alle 50ms
-}
-
+    let scaleStep = 1.0;
+    const maxScale = 2.0;
+    const interval = setInterval(() => {
+      scaleStep += 0.1;
+      if (scaleStep >= maxScale) {
+        clearInterval(interval);
+        Matter.Composite.remove(engineRef.current!.world, effect);
+      } else {
+        Matter.Body.scale(effect, 1.1, 1.1);
+        effect.render.fillStyle = `rgba(255, 255, 255, ${1 - (scaleStep - 1)})`; 
+      }
+    }, 50);
+  }
 
   const createBall = useCallback(() => {
     if (!engineRef.current) return;
@@ -319,7 +324,7 @@ export default function PlinkoBoard({
         frictionAir: 0.001,
         density: 0.02,
         render: {
-          fillStyle: ballColors[Math.floor(Math.random() * ballColors.length)],
+          fillStyle: ballColors[ballId % ballColors.length],
           visible: true,
         },
         collisionFilter: {
@@ -329,7 +334,7 @@ export default function PlinkoBoard({
       }
     );
     Matter.Composite.add(engineRef.current.world, ball);
-  }, [resultBin]);
+  }, [resultBin, ballId]);
 
   useEffect(() => {
     createPhysicsWorld();
@@ -373,7 +378,7 @@ export default function PlinkoBoard({
           return (
             <div
               key={index}
-              className={`text-xs md:text-sm px-1 py-1 ${bgColor} text-white rounded flex items-center justify-center`}
+              className={`text-xs md:text-sm px-1 py-1 ${bgColor} text-white rounded flex items-center justify-center ${index === hitBinIndex ? 'animate-blink-effect' : ''}`}
               style={{
                 width: `${100 / multipliers.length}%`,
                 fontSize: multipliers.length > 15 ? "0.65rem" : undefined,

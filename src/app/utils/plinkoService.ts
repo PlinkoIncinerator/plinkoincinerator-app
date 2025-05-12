@@ -33,7 +33,6 @@ export interface GameResult {
   hashedServerSeed: string;
   nonce: number;
   gameResult: number;
-  path: number[];
   finalMultiplier: number;
   betAmount: number;
   winAmount: number;
