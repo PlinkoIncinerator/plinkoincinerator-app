@@ -791,8 +791,11 @@ export default function PlinkoBoard({
   return (
     <div 
       ref={containerRef} 
-      className="w-full h-full relative overflow-hidden rounded-lg touch-none"
-      style={{ minHeight: isMobileDevice() ? '85vh' : '500px' }}
+      className="w-full h-full relative overflow-hidden rounded-lg"
+      style={{ 
+        minHeight: isMobileDevice() ? '85vh' : '500px',
+        touchAction: 'pan-y' // Allow vertical scrolling while maintaining other touch interactions
+      }}
     >
       <canvas ref={canvasRef} className="w-full h-full" />
       
