@@ -114,7 +114,7 @@ async function checkJupiterSwapAvailability(mintAddress: string): Promise<boolea
       // Check for minimum output amount to confirm real liquidity
       // Jupiter returns outAmount in lamports (SOL's smallest unit)
       const outAmount = data.outAmount ? parseInt(data.outAmount) : 0;
-      const outAmountInSol = outAmount / 1_000_000_000; // Convert lamports to SOL
+      const outAmountInSol = outAmount; // Convert lamports to SOL
 
       
       // If output amount is extremely low (like 0.000001 SOL), it likely means there's 
@@ -273,6 +273,36 @@ async function isTokenFrozen(mintAddress: string, walletPublicKey?: string): Pro
   }
 }
 
+// Add a new function to fetch price data from Jupiter
+async function fetchJupiterTokenPrice(mintAddress: string): Promise<number | undefined> {
+  try {
+    console.log(`Fetching Jupiter price data for ${mintAddress}`);
+    
+    // Use Jupiter's v2 price API which gives us price data for many tokens
+    const jupiterPriceResponse = await fetch(`https://api.jup.ag/price/v2?ids=${mintAddress}`);
+    
+    if (!jupiterPriceResponse.ok) {
+      console.log(`No Jupiter price data found for ${mintAddress}`);
+      return undefined;
+    }
+    
+    const priceData = await jupiterPriceResponse.json();
+    console.log(`Jupiter price data for ${mintAddress}:`, priceData);
+    
+    // Check if we have price data for this token
+    if (priceData.data && priceData.data[mintAddress]) {
+      const price = parseFloat(priceData.data[mintAddress].price);
+      console.log(`Found Jupiter price for ${mintAddress}: $${price}`);
+      return price;
+    }
+    
+    return undefined;
+  } catch (error) {
+    console.error(`Error fetching Jupiter price data for ${mintAddress}:`, error);
+    return undefined;
+  }
+}
+
 // Fetch token metadata from on-chain data using Jupiter instead of Helius RPC
 async function fetchTokenInfo(mintAddress: string, walletPublicKey?: string): Promise<TokenMetadata | null> {
   try {
@@ -280,6 +310,8 @@ async function fetchTokenInfo(mintAddress: string, walletPublicKey?: string): Pr
     
     // Use Jupiter's token info endpoint
     const jupiterResponse = await fetch(`https://lite-api.jup.ag/tokens/v1/token/${mintAddress}`);
+    console.log("jupiterResponse", jupiterResponse);
+    
     if (!jupiterResponse.ok) {
       console.log(`No Jupiter token info found for ${mintAddress}`);
       return null;
@@ -290,16 +322,22 @@ async function fetchTokenInfo(mintAddress: string, walletPublicKey?: string): Pr
       console.log(`No token info data for ${mintAddress}`);
       return null;
     }
+
+    console.log("tokenInfo", tokenInfo);
     
     // Check if token is frozen using our combined approach
     const isFrozen = await isTokenFrozen(mintAddress, walletPublicKey);
     console.log(`Token ${mintAddress} frozen status: ${isFrozen}`);
+    
+    // Try to fetch price from Jupiter's price API
+    const priceUsd = await fetchJupiterTokenPrice(mintAddress);
     
     return {
       name: tokenInfo.name || `Token ${mintAddress.slice(0, 8)}...${mintAddress.slice(-4)}`,
       symbol: tokenInfo.symbol || mintAddress.slice(0, 4).toUpperCase(),
       image: tokenInfo.logoURI || '',
       mint: mintAddress,
+      priceUsd: priceUsd, // Include price if we found it
       hasSwapRoutes: false, // Will be set later
       isFrozen: isFrozen // Use our combined frozen check
     };
@@ -309,7 +347,7 @@ async function fetchTokenInfo(mintAddress: string, walletPublicKey?: string): Pr
   }
 }
 
-// Fetch token metadata from DexScreener API
+// Fetch token metadata from on-chain data using Jupiter
 export async function getTokenMetadata(mintAddress: string, walletPublicKey?: string): Promise<TokenMetadata> {
   // Return from cache if available
   if (tokenMetadataCache[mintAddress]) {
@@ -317,7 +355,7 @@ export async function getTokenMetadata(mintAddress: string, walletPublicKey?: st
   }
   
   try {
-    // First try fetching from Jupiter (new approach)
+    // Try fetching from Jupiter token info endpoint
     const jupiterTokenInfo = await fetchTokenInfo(mintAddress, walletPublicKey);
     if (jupiterTokenInfo) {
       console.log(`Found Jupiter token info for ${mintAddress}:`, jupiterTokenInfo);
@@ -334,107 +372,50 @@ export async function getTokenMetadata(mintAddress: string, walletPublicKey?: st
       return jupiterTokenInfo;
     }
     
-    // If Jupiter fails, proceed with DexScreener API
-    const url = `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`;
-    console.log(`Fetching metadata for ${mintAddress} from DexScreener`);
-    
-    const response = await fetch(url);
-    
-    if (!response.ok) {
-      throw new Error(`Failed to fetch token metadata: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    
-    if (!data || !data.pairs || data.pairs.length === 0) {
-      // If DexScreener has no data and token ends with 'pump', try Pump.fun API
-      if (mintAddress.toLowerCase().endsWith('pump')) {
-        console.log(`No DexScreener data found for ${mintAddress}, trying Pump.fun API`);
-        return await getPumpFunMetadata(mintAddress, walletPublicKey);
-      }
-      console.log(`No DexScreener data found for ${mintAddress}`);
-      throw new Error("No metadata found");
-    }
-    
-    // Get the first pair data which contains token info
-    const tokenData = data.pairs[0];
-    console.log("Debug: DexScreener token data:", tokenData);
-    
-    // Use the image URL from the info section if available
-    let imageUrl = '';
-    if (tokenData.info && tokenData.info.imageUrl) {
-      imageUrl = tokenData.info.imageUrl;
-    } else {
-      // Try to get logo from Jupiter
-      try {
-        const logoUrl = await fetchTokenLogo(mintAddress);
-        if (logoUrl) {
-          imageUrl = logoUrl;
-        }
-      } catch (logoError) {
-        console.error(`Error fetching logo for ${mintAddress}:`, logoError);
-      }
-    }
-    
-    // Get price in USD if available
-    // priceUsd is the price per token in USD
-    const priceUsd = tokenData.priceUsd ? parseFloat(tokenData.priceUsd) : undefined;
-    console.log(`Debug: Token ${mintAddress} price per token: $${priceUsd}`);
+    // If Jupiter token info fails, try to at least get the price
+    const priceUsd = await fetchJupiterTokenPrice(mintAddress);
     
     // Check if token is frozen using our combined approach
     const isFrozen = await isTokenFrozen(mintAddress, walletPublicKey);
     
-    // Only check swap routes if not frozen
-    const hasSwapRoutes = !isFrozen && priceUsd ? await checkJupiterSwapAvailability(mintAddress) : false;
-    
-    console.log("hasSwapRoutes", hasSwapRoutes);
-    
-    const result: TokenMetadata = {
-      name: tokenData.baseToken.name || 'Unknown Token',
-      symbol: tokenData.baseToken.symbol || '???',
-      image: imageUrl,
-      mint: mintAddress,
-      priceUsd: hasSwapRoutes ? priceUsd : undefined, // Only show price if swap routes exist
-      hasSwapRoutes,
-      isFrozen: isFrozen
-    };
-    
-    console.log(`Token ${mintAddress} has swap routes: ${hasSwapRoutes}, displaying price: ${hasSwapRoutes ? priceUsd : 'hidden'}, frozen: ${isFrozen}`);
-    
-    // Cache the result
-    tokenMetadataCache[mintAddress] = result;
-    console.log(`Cached metadata for ${mintAddress}:`, result);
-    return result;
-  } catch (error) {
-    console.error(`Error fetching metadata for ${mintAddress}:`, error);
-    
-    // Check for freeze status before trying other sources
-    const isFrozen = await isTokenFrozen(mintAddress, walletPublicKey);
-    
-    // If token ends with 'pump', try Pump.fun API as fallback
-    if (mintAddress.toLowerCase().endsWith('pump')) {
-      try {
-        return await getPumpFunMetadata(mintAddress, walletPublicKey);
-      } catch (pumpError) {
-        console.error(`Error fetching from Pump.fun API: ${pumpError}`);
-      }
-    }
-   
-    // Fallback to basic metadata
-    const shortAddr = mintAddress.slice(0, 4);
-    
-    // Try to get the logo even for fallback tokens
+    // Try to get logo in the background
     let logoUrl = '';
     try {
       logoUrl = await fetchTokenLogo(mintAddress);
     } catch (logoError) {
-      console.error(`Error fetching logo in fallback metadata for ${mintAddress}:`, logoError);
+      console.error(`Error fetching logo for ${mintAddress}:`, logoError);
     }
     
+    // Only check swap routes if not frozen and we have a price
+    const hasSwapRoutes = !isFrozen && priceUsd ? await checkJupiterSwapAvailability(mintAddress) : false;
+    
+    // Create basic metadata with the information we were able to gather
+    const basicMetadata: TokenMetadata = {
+      name: `Token ${mintAddress.slice(0, 8)}...${mintAddress.slice(-4)}`,
+      symbol: mintAddress.slice(0, 4).toUpperCase(),
+      image: logoUrl,
+      mint: mintAddress,
+      priceUsd: priceUsd, // Always include price when available
+      hasSwapRoutes,
+      isFrozen: isFrozen
+    };
+    
+    console.log(`Token ${mintAddress} basic info - price: $${priceUsd || 'not found'}, swap routes: ${hasSwapRoutes}, frozen: ${isFrozen}`);
+    
+    // Cache the result
+    tokenMetadataCache[mintAddress] = basicMetadata;
+    return basicMetadata;
+  } catch (error) {
+    console.error(`Error fetching metadata for ${mintAddress}:`, error);
+    
+    // Check for freeze status as a fallback
+    const isFrozen = await isTokenFrozen(mintAddress, walletPublicKey);
+    
+    // Create fallback metadata
     const fallbackMetadata: TokenMetadata = {
       name: `Token ${mintAddress.slice(0, 8)}...${mintAddress.slice(-4)}`,
-      symbol: shortAddr.toUpperCase(),
-      image: logoUrl,
+      symbol: mintAddress.slice(0, 4).toUpperCase(),
+      image: '',
       mint: mintAddress,
       hasSwapRoutes: false,
       isFrozen: isFrozen
@@ -444,61 +425,6 @@ export async function getTokenMetadata(mintAddress: string, walletPublicKey?: st
     tokenMetadataCache[mintAddress] = fallbackMetadata;
     return fallbackMetadata;
   }
-}
-
-// Function to fetch metadata from Pump.fun API
-async function getPumpFunMetadata(mintAddress: string, walletPublicKey?: string): Promise<TokenMetadata> {
-  const url = `https://frontend-api-v3.pump.fun/coins/${mintAddress}`;
-  console.log(`Fetching metadata for ${mintAddress} from Pump.fun API`);
-  
-  const response = await fetch(url, {
-    headers: {
-      'Accept': '*/*',
-      'Accept-Language': 'en-US,en;q=0.5',
-      'Content-Type': 'application/json',
-      'Origin': 'https://pump.fun',
-      'Referer': 'https://pump.fun/',
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0'
-    }
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Failed to fetch from Pump.fun API: ${response.statusText}`);
-  }
-  
-  const data = await response.json();
-  console.log("Debug: Pump.fun token data:", data);
-  
-  // Calculate price per token in USD
-  // market_cap is in USD, total_supply is the total token supply
-  const priceUsd = data.market_cap && data.total_supply 
-    ? data.market_cap / (data.total_supply / Math.pow(10, 9)) // Convert from raw amount to actual tokens
-    : undefined;
-  
-  console.log(`Debug: Token ${mintAddress} price per token from Pump.fun: $${priceUsd}`);
-  
-  // Check for frozen status
-  const isFrozen = await isTokenFrozen(mintAddress, walletPublicKey);
-  
-  // Only check Jupiter if we have a price and the token is not frozen
-  const hasSwapRoutes = !isFrozen && priceUsd ? await checkJupiterSwapAvailability(mintAddress) : false;
-  
-  const result: TokenMetadata = {
-    name: data.name || `Token ${mintAddress.slice(0, 8)}...${mintAddress.slice(-4)}`,
-    symbol: data.symbol || '???',
-    image: data.image_uri || '',
-    mint: mintAddress,
-    priceUsd: hasSwapRoutes ? priceUsd : undefined, // Only show price if swap routes exist
-    hasSwapRoutes,
-    isFrozen: isFrozen
-  };
-  
-  console.log(`Pump token ${mintAddress} has swap routes: ${hasSwapRoutes}, displaying price: ${hasSwapRoutes ? priceUsd : 'hidden'}, frozen: ${isFrozen}`);
-  
-  // Cache the result
-  tokenMetadataCache[mintAddress] = result;
-  console.log(`Cached Pump.fun metadata for ${mintAddress}:`, result);
-  return result;
 }
 
 // Batch fetch token metadata for multiple tokens

@@ -90,7 +90,7 @@ export default function PlinkoIncinerator() {
   } | null>(null);
   const [incinerationMode, setIncinerationMode] = useState<'withdraw' | 'gamble' | null>(null);
   const [incinerationOptionsVisible, setIncinerationOptionsVisible] = useState(false);
-  const [maxTokenValue, setMaxTokenValue] = useState<number>(0.1); // Default max value in SOL
+  const [maxTokenValue, setMaxTokenValue] = useState<number>(2.5); // Default max value in USD
   const [solToUsd, setSolToUsd] = useState<number | null>(null);
   const [feePercentage, setFeePercentage] = useState<number>(0.021); // Default to 2.1%
   
@@ -142,7 +142,7 @@ export default function PlinkoIncinerator() {
 
   // Add useEffect to log current max value on changes to help debug
   useEffect(() => {
-    console.log(`Max token value updated: ${maxTokenValue} SOL (ref value: ${currentMaxValueRef.current} SOL)`);
+    console.log(`Max token value updated: ${maxTokenValue} USD (ref value: ${currentMaxValueRef.current} USD)`);
   }, [maxTokenValue]);
 
   // Memoize fetchTokenAccounts to avoid dependency issues in useEffect
@@ -154,7 +154,7 @@ export default function PlinkoIncinerator() {
     
     console.log('fetching token accounts');
     addDebugMessage('Fetching token accounts...');
-    addDebugMessage(`Using max token value: ${currentMaxValueRef.current} SOL ($${(currentMaxValueRef.current * (solToUsd || 20)).toFixed(2)})`);
+    addDebugMessage(`Using max token value: $${currentMaxValueRef.current.toFixed(2)} USD`);
     
     try {
       // Track scan initiation
@@ -275,7 +275,7 @@ export default function PlinkoIncinerator() {
         console.log(`Debug: Token ${account.mint} total value: $${tokenValueUsd}`);
         
         // Check eligibility based on value and swap availability
-        const maxValueInUsd = currentMaxValueRef.current * (solToUsd || 20);
+        const maxValueInUsd = currentMaxValueRef.current; // Using USD value directly
         
         // A token is eligible if:
         // 1. It has zero balance (empty account), OR
@@ -289,7 +289,11 @@ export default function PlinkoIncinerator() {
         const isFrozen = tokenMetadata?.isFrozen === true;
         
         // Frozen tokens are never eligible
-        const isEligible = !isFrozen && (account.amount === 0 || hasNoSwapRoutes || tokenValueUsd <= maxValueInUsd);
+        const isEligible = !isFrozen && (
+          account.amount === 0 || 
+          hasNoSwapRoutes || 
+          (tokenValueUsd <= maxValueInUsd)
+        );
 
         console.log("hasNoSwapRoutes", hasNoSwapRoutes);
         console.log("isFrozen", isFrozen);
@@ -297,6 +301,10 @@ export default function PlinkoIncinerator() {
         console.log("account.amount", account.amount);
         console.log("tokenValueUsd", tokenValueUsd);
         console.log("maxValueInUsd", maxValueInUsd);
+        
+        if (tokenValueUsd > maxValueInUsd && !isFrozen && account.amount > 0 && !hasNoSwapRoutes) {
+          console.log(`Token ${account.mint} value ($${tokenValueUsd.toFixed(2)}) exceeds max threshold ($${maxValueInUsd.toFixed(2)}) - not eligible`);
+        }
 
         if (isFrozen) {
           console.log(`Token ${account.mint} is frozen and cannot be incinerated`);
@@ -779,11 +787,10 @@ export default function PlinkoIncinerator() {
     if (!primaryWallet || !Config.solWallet.publicKey) return;
     addDebugMessage('Manually refreshing token accounts');
     // Log the current max value being used
-    const maxValueInUsd = currentMaxValueRef.current * (solToUsd || 20);
-    addDebugMessage(`Using max token value: ${currentMaxValueRef.current} SOL ($${maxValueInUsd.toFixed(2)})`);
+    addDebugMessage(`Using max token value: $${currentMaxValueRef.current.toFixed(2)} USD`);
     
     // Instead of clearing the tokens completely, mark them as being refreshed
-    setLoadingMessage(`Refreshing token accounts with max value $${maxValueInUsd.toFixed(2)}...`);
+    setLoadingMessage(`Refreshing token accounts with max value $${currentMaxValueRef.current.toFixed(2)}...`);
     setTokenAccounts(prevTokens => prevTokens.map(token => ({
       ...token,
       isRefreshing: true
@@ -852,14 +859,14 @@ export default function PlinkoIncinerator() {
     setMaxTokenValue(value);
     currentMaxValueRef.current = value;
     
-    // The value parameter is now in SOL (converted from USD in the slider component)
-    const usdValue = value * (solToUsd || 20);
-    addDebugMessage(`Max token value set to $${usdValue.toFixed(2)} (${value.toFixed(4)} SOL)`);
+    // The value parameter is now in USD directly from the slider
+    console.log(`Max token value set to $${value.toFixed(2)} USD`);
+    addDebugMessage(`Max token value set to $${value.toFixed(2)} USD`);
     
     // Automatically refresh token eligibility when the value changes
     if (primaryWallet && Config.solWallet.publicKey && gameState === 'ready' && !isRefreshingRef.current) {
       addDebugMessage('Automatically refreshing token eligibility with new threshold');
-      setLoadingMessage(`Updating token eligibility with $${usdValue.toFixed(2)} threshold...`);
+      setLoadingMessage(`Updating token eligibility with $${value.toFixed(2)} threshold...`);
       
       // Use setTimeout to ensure this happens after state updates
       setTimeout(() => {
@@ -981,8 +988,7 @@ export default function PlinkoIncinerator() {
                   setLoadingMessage(''); // Clear any existing error message
                   setLoading(true);
                   setGameState('scanning');
-                  const maxValueInUsd = currentMaxValueRef.current * (solToUsd || 20);
-                  setLoadingMessage(`Scanning for tokens with value below $${maxValueInUsd.toFixed(2)}...`);
+                  setLoadingMessage(`Scanning for tokens with value below $${currentMaxValueRef.current.toFixed(2)}...`);
                   fetchTokenAccounts();
                 }}
                 className="bg-gradient-to-r from-purple-800 via-pink-700 to-blue-800 hover:from-purple-700 hover:via-pink-600 hover:to-blue-700 text-white py-2 px-6 rounded-lg transition-all hover:scale-105 shadow-md text-base font-medium flex items-center justify-center gap-2"

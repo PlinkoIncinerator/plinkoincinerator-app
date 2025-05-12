@@ -238,6 +238,14 @@ export default function TokenList({
           const totalSol = (tokenValueInSol + accountClosureValue) * (1 - feePercentage);
           const totalUsd = ((token.valueUsd || 0) + (accountClosureValue * (solToUsd || 0))) * (1 - feePercentage);
           
+
+          console.log("token", token) 
+          console.log("tokenValueInSol", tokenValueInSol)
+          console.log("netAccountClosureSol", netAccountClosureSol)
+          console.log("netAccountClosureUsd", netAccountClosureUsd)
+          console.log("totalSol", totalSol)
+          console.log("totalUsd", totalUsd)
+
           return (
             <div
               key={token.pubkey}

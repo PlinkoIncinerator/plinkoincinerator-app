@@ -22,7 +22,6 @@ const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
 };
 
 export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSliderProps) {
-  // The fixed values for the slider in dollars - changed to $0, $2.5, $5, $10
   const valueOptionsUsd = [0, 2.5, 5, 10]; 
   
   const [solToUsd, setSolToUsd] = useState<number>(20); // Default fallback value
@@ -74,11 +73,11 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
   useEffect(() => {
     if (initialRenderRef.current) {
       initialRenderRef.current = false;
-      // Trigger the onChange with the initial value
-      const solValue = selectedUsdValue / solToUsd;
-      onChange(solValue);
+      // Trigger the onChange with the initial USD value directly
+      onChange(selectedUsdValue);
+      console.log(`AmountSlider: initial value ${selectedUsdValue} USD passed directly`);
     }
-  }, [onChange, solToUsd]);
+  }, [onChange, selectedUsdValue]);
 
   // Safely trigger the onChange callback with debounce
   const triggerOnChange = (usdValue: number) => {
@@ -97,8 +96,10 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
     
     // Debounce the onChange call
     timeoutRef.current = setTimeout(() => {
-      const solValue = usdValue / solToUsd;
-      onChange(solValue);
+      // Pass the USD value directly instead of converting to SOL
+      // This avoids double conversion issues
+      onChange(usdValue);
+      console.log(`AmountSlider: passing value ${usdValue} USD directly`); 
     }, 300); // 300ms debounce
   };
 
