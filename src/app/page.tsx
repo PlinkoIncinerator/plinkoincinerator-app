@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Header from './components/Header';
 import Footer from './components/Footer';
 import PlinkoClientWrapper from './components/PlinkoClientWrapper';
+import WalletConnectButton from './components/WalletConnectButton';
 
 // Create a reusable component for the Solana logo
 const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
@@ -149,6 +150,17 @@ export default function Home() {
               </div>
             </div>
           </div>
+
+          {/* Mobile Wallet Connect Button */}
+            <div className="md:hidden flex flex-col items-center justify-center mb-8">
+            <div className="bg-gradient-to-r from-purple-600 via-pink-500 to-blue-600 p-[2px] rounded-xl animate-pulse hover:animate-none">
+              <div className="bg-gray-900 rounded-xl p-4">
+                <WalletConnectButton />
+              </div>
+            </div>
+            <p className="text-gray-400 text-sm mt-4">Connect your wallet to start burning tokens</p>
+          </div>
+          
           
           {/* Incinerator Component */}
           <div className="bg-black bg-opacity-40 backdrop-blur-sm rounded-xl p-6 border border-purple-900 shadow-2xl mb-10 mx-4">
