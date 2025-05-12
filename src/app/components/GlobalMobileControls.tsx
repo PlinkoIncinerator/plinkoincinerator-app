@@ -43,6 +43,33 @@ export default function GlobalMobileControls({
   // Add debug counter to track onPlay calls
   const playCountRef = useRef(0);
   
+  // Add state to track the balance internally
+  const [internalBalance, setInternalBalance] = useState<number>(currentBalance);
+  
+  // Listen for balance updates from plinkoService
+  useEffect(() => {
+    if (!plinkoService) return;
+    
+    // Create a balance update listener function
+    const balanceUpdateListener = (newBalance: number) => {
+      console.log("GlobalMobileControls: Balance update received:", newBalance);
+      setInternalBalance(newBalance);
+    };
+    
+    // Register the listener with the PlinkoService
+    plinkoService.addBalanceUpdateListener(balanceUpdateListener);
+    
+    // Cleanup on unmount
+    return () => {
+      plinkoService.removeBalanceUpdateListener(balanceUpdateListener);
+    };
+  }, [plinkoService]);
+  
+  // Update internal balance when props change
+  useEffect(() => {
+    setInternalBalance(currentBalance);
+  }, [currentBalance]);
+  
   // Update ref when props change
   useEffect(() => {
     const previousIsTestMode = propsRef.current.isTestMode;
@@ -51,14 +78,14 @@ export default function GlobalMobileControls({
       walletAddress,
       onPlay,
       disabled,
-      currentBalance,
+      // Use internal balance that's kept updated instead of currentBalance from props
+      currentBalance: isTestMode ? testBalance : internalBalance,
       isTestMode,
       testBalance,
       plinkoService
     };
     
-   
-  }, [walletAddress, onPlay, disabled, currentBalance, isTestMode, testBalance, plinkoService]);
+  }, [walletAddress, onPlay, disabled, internalBalance, isTestMode, testBalance, plinkoService]);
   
   // Toggle expanded state using callback to avoid re-renders
   const toggleExpandControls = useCallback(() => {

@@ -91,6 +91,9 @@ export default function PlinkoGameClient({
   // Add ref to store previous controls state
   const prevControlsRef = useRef<any>(null);
 
+  // Add a ref for PlinkoControls
+  const controlsRef = useRef<React.ElementRef<typeof PlinkoControls>>(null);
+
   // Check for mobile view on component mount and window resize
   useEffect(() => {
     setIsBrowser(true);
@@ -293,7 +296,38 @@ export default function PlinkoGameClient({
       });
   };
 
-  // Handle balance update from server
+  // Register the PlinkoService balance update listener
+  useEffect(() => {
+    // Skip if not in browser
+    if (!isBrowser || !plinkoService) return;
+
+    // Create a balance update listener function
+    const balanceUpdateListener = (newBalance: number) => {
+      console.log("PlinkoGameClient: Balance update listener received:", newBalance);
+      
+      // Update state
+      setCurrentDisplayBalance(newBalance);
+      setGameState(prev => ({
+        ...prev,
+        balance: newBalance
+      }));
+      
+      // Update the controls directly using the ref
+      if (controlsRef.current) {
+        controlsRef.current.updateBalance(newBalance);
+      }
+    };
+    
+    // Register the listener with the PlinkoService
+    plinkoService.addBalanceUpdateListener(balanceUpdateListener);
+    
+    // Cleanup on unmount
+    return () => {
+      plinkoService.removeBalanceUpdateListener(balanceUpdateListener);
+    };
+  }, [isBrowser, plinkoService]);
+
+  // Update the handleBalanceUpdate function to use the listener system
   const handleBalanceUpdate = (data: { balance: number }) => {
     console.log("Balance update received from server:", data.balance);
 
@@ -305,6 +339,14 @@ export default function PlinkoGameClient({
 
     // Update display balance directly to ensure mobile controls get the updated value
     setCurrentDisplayBalance(data.balance);
+    
+    // Emit the balance update to all registered listeners
+    plinkoService.emitBalanceUpdate(data.balance);
+    
+    // Update the controls ref directly if it exists
+    if (controlsRef.current) {
+      controlsRef.current.updateBalance(data.balance);
+    }
   };
 
   // Handle game result
@@ -914,6 +956,15 @@ export default function PlinkoGameClient({
       testBalance,
       // Expose the plinkoService instance for direct access
       plinkoService,
+      // Add a direct updateBalance method for use with the forwardRef
+      updateBalance: (newBalance: number) => {
+        console.log("Updating balance directly:", newBalance);
+        setCurrentDisplayBalance(newBalance);
+        setGameState(prev => ({
+          ...prev,
+          balance: newBalance
+        }));
+      }
     };
 
     console.log("Registering controls with:", {
@@ -1068,6 +1119,7 @@ export default function PlinkoGameClient({
         {!isMobileView && (
           <div className="md:w-80 bg-gray-800 rounded-xl p-4 shadow-lg h-fit">
             <PlinkoControls
+              ref={controlsRef}
               walletAddress={walletAddress}
               onPlay={handlePlay}
               disabled={!isConnected}

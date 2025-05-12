@@ -41,6 +41,18 @@ function PlinkoClientWrapper({ initialBalance = 1000 }: PlinkoClientWrapperProps
   // Add a state to track play trigger for debugging
   const [isPlayTriggered, setIsPlayTriggered] = useState(false);
   
+  // Get the plinkoService instance directly
+  const [plinkoService] = useState(() => {
+    // Use the singleton from plinkoService to ensure consistency
+    try {
+      const { getPlinkoService } = require('../utils/plinkoService');
+      return getPlinkoService();
+    } catch (error) {
+      console.error('Error getting plinkoService instance:', error);
+      return null;
+    }
+  });
+  
   // Use ref for controls state to avoid re-renders
   const controlsRef = useRef<PlinkoControlsContextType>({
     walletAddress: '',
@@ -52,11 +64,50 @@ function PlinkoClientWrapper({ initialBalance = 1000 }: PlinkoClientWrapperProps
     isTestMode: false,
     testBalance: 10,
     isPlayTriggered: false,
-    plinkoService: null,
+    plinkoService: plinkoService,
   });
   
   // State only used for context updates, not for tracking real-time values
   const [plinkoControls, setPlinkoControls] = useState<PlinkoControlsContextType>(controlsRef.current);
+  
+  // Listen for balance updates from plinkoService
+  useEffect(() => {
+    if (!plinkoService) return;
+    
+    console.log('PlinkoClientWrapper: Setting up balance update listener');
+    
+    const handleBalanceUpdate = (newBalance: number) => {
+      console.log('PlinkoClientWrapper: Balance update received:', newBalance);
+      
+      // Don't update test mode balance
+      if (controlsRef.current.isTestMode) {
+        console.log('PlinkoClientWrapper: Ignoring balance update in test mode');
+        return;
+      }
+      
+      // Update the ref
+      const prevBalance = controlsRef.current.currentBalance;
+      controlsRef.current = {
+        ...controlsRef.current,
+        currentBalance: newBalance
+      };
+      
+      // Force update state to propagate change to all components
+      setPlinkoControls({
+        ...controlsRef.current
+      });
+      
+      console.log('PlinkoClientWrapper: Balance updated from', prevBalance, 'to', newBalance);
+    };
+    
+    // Register balance update listener
+    plinkoService.addBalanceUpdateListener(handleBalanceUpdate);
+    
+    // Cleanup on unmount
+    return () => {
+      plinkoService.removeBalanceUpdateListener(handleBalanceUpdate);
+    };
+  }, [plinkoService]);
   
   // Use effect with proper dependencies
   useEffect(() => {
@@ -99,17 +150,20 @@ function PlinkoClientWrapper({ initialBalance = 1000 }: PlinkoClientWrapperProps
     // Deep equality check for important values only
     const hasImportantChanges = 
       prevControls.walletAddress !== controls.walletAddress ||
-      prevControls.currentBalance !== controls.currentBalance ||
+      // Compare balance values with a small epsilon for floating point precision
+      Math.abs(prevControls.currentBalance - controls.currentBalance) > 0.000001 ||
       prevControls.isTestMode !== controls.isTestMode ||
       prevControls.testBalance !== controls.testBalance ||
       prevControls.disabled !== controls.disabled;
     
-    // Always update the ref with the wrapped onPlay
+    // Always update the ref with the wrapped onPlay,
+    // but preserve our plinkoService instance
     controlsRef.current = {
       ...controls,
       onPlay: wrappedOnPlay,
       isPlayTriggered,
-      plinkoService: controls.plinkoService || null
+      // Keep our stable reference to plinkoService
+      plinkoService: plinkoService || controls.plinkoService || null
     };
     
     // Only update state (causing re-render) if important values changed or forceUpdate is true
@@ -126,7 +180,8 @@ function PlinkoClientWrapper({ initialBalance = 1000 }: PlinkoClientWrapperProps
         ...controls,
         onPlay: wrappedOnPlay,
         isPlayTriggered,
-        plinkoService: controls.plinkoService || null
+        // Keep our stable reference to plinkoService
+        plinkoService: plinkoService || controls.plinkoService || null
       });
       
       // Force a slight delay then update again to ensure changes propagate correctly
@@ -142,10 +197,7 @@ function PlinkoClientWrapper({ initialBalance = 1000 }: PlinkoClientWrapperProps
         }, 50);
       }
     }
-  }, [isPlayTriggered]); // Include isPlayTriggered in dependencies
-  
-  // Get the plinkoService instance from controls ref if available
-  const plinkoService = controlsRef.current?.plinkoService || null;
+  }, [isPlayTriggered, plinkoService]); // Include plinkoService in dependencies
   
   return (
     <PlinkoControlsContext.Provider value={plinkoControls}>

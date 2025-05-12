@@ -87,7 +87,7 @@ export default function PlinkoMobileControls({
 }: PlinkoMobileControlsProps) {
 
   const minBetAmount = 0.0001;
-  const [betAmount, setBetAmount] = useState<number>(minBetAmount);
+  const [betAmount, setBetAmount] = useState<number>(0.01);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'bet' | 'info'>('bet');
   
@@ -98,13 +98,38 @@ export default function PlinkoMobileControls({
   // Add ref to track prop changes
   const prevPropsRef = useRef({isTestMode, testBalance, currentBalance});
   
+  // Generate bet steps when maxBetAmount changes
+  const [betSteps, setBetSteps] = useState<number[]>([]);
+
+  // Refs to track initialization state
+  const betAmountInitialized = useRef<boolean>(false);
+  const prevMaxBetAmount = useRef<number>(0);
+
+  // Update the maxBetAmount calculation to use isTestMode directly
+  const maxBetAmount = isTestMode 
+    ? testBalance  // In test mode, use testBalance directly
+    : (balance?.currentBalance || minBetAmount);
+
+  // Add direct balance calculation to use in the UI - this ensures balance works in both modes
+  const displayBalance = isTestMode 
+    ? testBalance 
+    : (balance?.currentBalance || currentBalance || 0);
+
+  // Check if balance is insufficient for minimum bet - only in real mode
+  const isBalanceInsufficient = !isTestMode && displayBalance < minBetAmount;
+
   // Force update when props change drastically
   useEffect(() => {
     const prevProps = prevPropsRef.current;
     
     // If test mode changed or balance changed dramatically, force update
-    if (prevProps.isTestMode !== isTestMode) {
-      console.log('MobileControls: Test mode changed from', prevProps.isTestMode, 'to', isTestMode);
+    if (prevProps.isTestMode !== isTestMode || Math.abs(prevProps.currentBalance - currentBalance) > 0.001) {
+      console.log('MobileControls: Mode or balance changed significantly', {
+        prevTestMode: prevProps.isTestMode,
+        newTestMode: isTestMode,
+        prevBalance: prevProps.currentBalance,
+        newBalance: currentBalance
+      });
       
       // Update previous props
       prevPropsRef.current = {isTestMode, testBalance, currentBalance};
@@ -122,9 +147,7 @@ export default function PlinkoMobileControls({
           pendingWithdrawals: 0
         });
         
-        // Set initial bet amount based on test balance
-        const initialBet = Math.max(testBalance * 0.1, minBetAmount);
-        setBetAmount(Math.min(initialBet, testBalance));
+        // Don't set initial bet here, let the betSteps useEffect handle it
       } else {
         // In real mode, use the currentBalance prop
         console.log('MobileControls: Setting real balance to:', currentBalance);
@@ -138,9 +161,7 @@ export default function PlinkoMobileControls({
           pendingWithdrawals: 0
         });
         
-        // Set initial bet amount based on current balance
-        const initialBet = Math.max(currentBalance * 0.1, minBetAmount);
-        setBetAmount(Math.min(initialBet, currentBalance));
+        // Don't set initial bet here, let the betSteps useEffect handle it
       }
     }
   }, [isTestMode, testBalance, currentBalance, minBetAmount]);
@@ -174,83 +195,90 @@ export default function PlinkoMobileControls({
     };
 
     fetchWalletData();
-  }, [walletAddress, isTestMode]); // Change localTestMode to isTestMode
+  }, [walletAddress, isTestMode]);
   
-  // Update the maxBetAmount calculation to use isTestMode directly
-  const maxBetAmount = isTestMode 
-    ? testBalance  // In test mode, use testBalance directly
-    : (balance?.currentBalance || minBetAmount);
-
-  // Add direct balance calculation to use in the UI - this ensures balance works in both modes
-  const displayBalance = isTestMode 
-    ? testBalance 
-    : (balance?.currentBalance || currentBalance || 0);
-
-  // Check if balance is insufficient for minimum bet - only in real mode
-  const isBalanceInsufficient = !isTestMode && displayBalance < minBetAmount;
-
-
-  // Move the betSteps generation to be recalculated whenever maxBetAmount changes
-  // Create a useEffect to regenerate betSteps when maxBetAmount changes
-  const [betSteps, setBetSteps] = useState<number[]>([0.01, 0.05, 0.1, 0.25, 0.5]);
-
-  // Generate bet steps when maxBetAmount changes
+  // Find the closest step in our predefined steps - move before the useEffect that needs it
+  const findClosestStep = useCallback((value: number, steps: number[]) => {
+    if (!steps || steps.length === 0) return minBetAmount;
+    
+    return steps.reduce((prev, curr) => 
+      Math.abs(curr - value) < Math.abs(prev - value) ? curr : prev
+    );
+  }, [minBetAmount]);
+  
+  // Generate bet steps when maxBetAmount changes - fix typing issues
   useEffect(() => {
+    // Generate dynamic bet steps based on min and max
+    console.log('Generating bet steps with min:', minBetAmount, 'max:', maxBetAmount);
     
-    // Start with standard steps that are at or below the maxBetAmount
-    const standardSteps = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 7.5, 10].filter(step => step <= maxBetAmount);
+    const generatedSteps: number[] = [];
     
-    // If max balance is greater than our predefined steps, add it as the last step
-    if (maxBetAmount > (standardSteps.length > 0 ? standardSteps[standardSteps.length - 1] : 0)) {
-      standardSteps.push(maxBetAmount);
-    }
-    
-    // If max balance is less than our smallest step, use appropriate smaller steps
-    if (standardSteps.length === 0 || standardSteps[0] > minBetAmount * 10) {
-      const smallSteps = [0.001, 0.005, 0.01, 0.025, 0.05].filter(step => step <= maxBetAmount);
-      if (smallSteps.length > 0) {
-        standardSteps.unshift(...smallSteps);
-      } else {
-        standardSteps.push(minBetAmount, maxBetAmount);
+    // Add power of 10 steps (0.001, 0.01, 0.1, 1, 10, etc)
+    if (maxBetAmount > 0) {
+      // Find appropriate exponent ranges based on min/max
+      const minExponent = Math.floor(Math.log10(minBetAmount / 10));
+      const maxExponent = Math.ceil(Math.log10(maxBetAmount * 10));
+      
+      // Generate steps at power of 10 intervals
+      for (let exp = minExponent; exp <= maxExponent; exp++) {
+        const step = Math.pow(10, exp);
+        if (step >= minBetAmount / 10 && step <= maxBetAmount * 10) {
+          generatedSteps.push(step);
+          
+          // Add half steps as well (0.5, 5, 50, etc)
+          if (exp > 0) {
+            generatedSteps.push(step * 5);
+          }
+        }
       }
     }
     
-    // Ensure we always have at least the minBetAmount and current maxBetAmount
-    if (standardSteps.length === 0) {
-      standardSteps.push(minBetAmount, maxBetAmount);
+    // Always ensure the minBetAmount is included
+    if (!generatedSteps.includes(minBetAmount) && minBetAmount <= maxBetAmount) {
+      generatedSteps.unshift(minBetAmount);
     }
     
-    // Deduplicate and sort steps
-    const uniqueSteps = [...new Set(standardSteps)].sort((a, b) => a - b);
+    // Always ensure the maxBetAmount is included as the last step
+    if (!generatedSteps.includes(maxBetAmount)) {
+      generatedSteps.push(maxBetAmount);
+    }
+    
+    // Deduplicate, sort, and ensure finite values
+    const uniqueSteps = [...new Set(generatedSteps)]
+      .filter(step => isFinite(step) && !isNaN(step) && step > 0)
+      .sort((a, b) => a - b);
+    
+    console.log('Generated bet steps:', uniqueSteps);
     
     // Update the betSteps state
     setBetSteps(uniqueSteps);
     
-    // If current betAmount is greater than maxBetAmount, adjust it down
-    if (betAmount > maxBetAmount) {
-      console.log('Adjusting bet amount from', betAmount, 'to max', maxBetAmount);
-      setBetAmount(maxBetAmount);
+    // Set default bet to middle of balance (or close to it)
+    // Find the step closest to half of maxBetAmount
+    const targetBet = maxBetAmount / 2;
+    const closestMiddleStep = findClosestStep(targetBet, uniqueSteps);
+    
+    // Only set initial bet amount on first render or when min/max changes significantly
+    if (!betAmountInitialized.current || prevMaxBetAmount.current !== maxBetAmount) {
+      console.log('Setting default bet to middle step:', closestMiddleStep);
+      setBetAmount(closestMiddleStep);
+      betAmountInitialized.current = true;
+      prevMaxBetAmount.current = maxBetAmount;
     }
-  }, [maxBetAmount, minBetAmount, betAmount]);
+    
+  }, [maxBetAmount, minBetAmount, findClosestStep]);
+  
+  // Get the current step index for the slider
+  const getCurrentStepIndex = useCallback(() => {
+    const closestStep = findClosestStep(betAmount, betSteps);
+    return betSteps.indexOf(closestStep);
+  }, [betAmount, betSteps, findClosestStep]);
   
   // Format the current bet amount for display - ensure exactly 4 decimal places
   const formattedBetAmount = betAmount.toFixed(4);
   
   // Prevent button spamming with a small throttle
   const [isButtonCooling, setIsButtonCooling] = useState<boolean>(false);
-  
-  // Find the closest step in our predefined steps
-  const findClosestStep = (value: number) => {
-    return betSteps.reduce((prev, curr) => 
-      Math.abs(curr - value) < Math.abs(prev - value) ? curr : prev
-    );
-  };
-  
-  // Get the current step index for the slider
-  const getCurrentStepIndex = () => {
-    const closestStep = findClosestStep(betAmount);
-    return betSteps.indexOf(closestStep);
-  };
   
   // Handle touch events for slider - simplify to just prevent default
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLInputElement>) => {
@@ -425,31 +453,41 @@ export default function PlinkoMobileControls({
   
   // Add indicator component for slider
   const SliderIndicators = ({ steps, currentIndex }: { steps: number[], currentIndex: number }) => {
-    // Only show indicators for a reasonable number of steps
-    if (steps.length > 10) {
-      // For many steps, show just a few key indicators
-      const indicatorIndices = [0, Math.floor(steps.length / 4), Math.floor(steps.length / 2), 
-                              Math.floor(3 * steps.length / 4), steps.length - 1];
-      
-      return (
-        <div className="flex justify-between w-full mt-1 px-1">
-          {indicatorIndices.map(i => (
-            <div 
-              key={i} 
-              className={`w-1 h-2 rounded-full ${currentIndex === i ? 'bg-purple-500' : 'bg-gray-500'}`}
-            />
-          ))}
-        </div>
-      );
+    // Always show at least 5 indicators, but support more for larger ranges
+    const totalIndicators = Math.min(15, steps.length);
+    const indicatorIndices: number[] = [];
+    
+    if (steps.length <= totalIndicators) {
+      // If we have fewer steps than indicators, show all of them
+      for (let i = 0; i < steps.length; i++) {
+        indicatorIndices.push(i);
+      }
+    } else {
+      // Calculate evenly distributed indices
+      for (let i = 0; i < totalIndicators; i++) {
+        const index = Math.floor((i / (totalIndicators - 1)) * (steps.length - 1));
+        indicatorIndices.push(index);
+      }
     }
     
-    // For fewer steps, show all indicators
     return (
       <div className="flex justify-between w-full mt-1 px-1">
-        {steps.map((_, i) => (
+        {indicatorIndices.map(i => (
           <div 
             key={i} 
-            className={`w-1 h-2 rounded-full ${currentIndex === i ? 'bg-purple-500' : 'bg-gray-500'}`}
+            className={`w-1 h-2 rounded-full ${
+              // Highlight both the current index and adjacent indicators for better visibility
+              i === currentIndex ? 'bg-purple-500 w-1.5 h-3' : 
+              Math.abs(i - currentIndex) === 1 ? 'bg-purple-300 w-1 h-2.5' :
+              'bg-gray-500'
+            }`}
+            onClick={() => {
+              // Access the step at this index and set it as the bet amount
+              if (i >= 0 && i < steps.length) {
+                setBetAmount(steps[i]);
+                setError(null);
+              }
+            }}
           />
         ))}
       </div>

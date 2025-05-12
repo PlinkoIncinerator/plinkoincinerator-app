@@ -13,6 +13,7 @@ import Image from "next/image";
 import IncineratorActions from './IncineratorActions';
 import TokenList from './TokenList';
 import AmountSlider from './AmountSlider';
+import { getPlinkoService } from "../utils/plinkoService";
 
 // Create a reusable component for the Solana logo
 export const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
@@ -93,6 +94,9 @@ export default function PlinkoIncinerator() {
   const [maxTokenValue, setMaxTokenValue] = useState<number>(2.5); // Default max value in USD
   const [solToUsd, setSolToUsd] = useState<number | null>(null);
   const [feePercentage, setFeePercentage] = useState<number>(0.021); // Default to 2.1%
+  
+  // Get the plinkoService instance to update the balance
+  const [plinkoService] = useState(() => getPlinkoService());
   
   // Add a ref to track the current value and prevent recursive updates
   const currentMaxValueRef = useRef(maxTokenValue);
@@ -685,6 +689,30 @@ export default function PlinkoIncinerator() {
           
         setLoadingMessage(remainingMessage);
         
+        // Notify the plinkoService of the balance update
+        if (plinkoService && plinkoService.emitBalanceUpdate) {
+          addDebugMessage(`Notifying plinkoService of balance update after withdrawal`);
+          
+          // Force a refresh of the wallet balance from the server
+          try {
+            if (plinkoService.isConnected()) {
+              // Request a balance refresh from the server to get the accurate balance
+              const refreshedState = await plinkoService.refreshGameState();
+              if (refreshedState) {
+                const newBalance = refreshedState.balance;
+                addDebugMessage(`Retrieved updated balance from server: ${newBalance.toFixed(6)} SOL`);
+                plinkoService.emitBalanceUpdate(newBalance);
+              } else {
+                // Fallback to estimating the balance if refresh fails
+                addDebugMessage(`Failed to refresh balance from server, approximating`);
+                // We don't know the current balance, so we don't emit anything
+              }
+            }
+          } catch (error) {
+            addDebugMessage(`Error refreshing balance: ${error}`);
+          }
+        }
+        
         // Track successful incineration
         trackPlinkoEvent(
           'withdrawal_success',
@@ -702,6 +730,30 @@ export default function PlinkoIncinerator() {
         addDebugMessage(`Transaction completed: ${totalValue.toFixed(6)} SOL added to gambling balance`);
         setGameBalance(totalValue);
         setIncineratedValue(prev => prev + totalValue);
+        
+        // Notify the plinkoService of the balance update
+        if (plinkoService && plinkoService.emitBalanceUpdate) {
+          addDebugMessage(`Notifying plinkoService of balance update after adding to gambling balance`);
+          
+          // Force a refresh of the wallet balance from the server
+          try {
+            if (plinkoService.isConnected()) {
+              // Request a balance refresh from the server to get the accurate balance
+              const refreshedState = await plinkoService.refreshGameState();
+              if (refreshedState) {
+                const newBalance = refreshedState.balance;
+                addDebugMessage(`Retrieved updated balance from server: ${newBalance.toFixed(6)} SOL`);
+                plinkoService.emitBalanceUpdate(newBalance);
+              } else {
+                // Fallback to estimating the balance if refresh fails
+                addDebugMessage(`Failed to refresh balance from server, approximating`);
+                // We don't know the current balance, so we don't emit anything
+              }
+            }
+          } catch (error) {
+            addDebugMessage(`Error refreshing balance: ${error}`);
+          }
+        }
         
         const remainingMessage = accountsToProcess.length > 5 
           ? `Tokens successfully incinerated for gambling! ${eligibleTokens.length - accountsToProcess.length} more tokens can be processed.`
@@ -883,11 +935,7 @@ export default function PlinkoIncinerator() {
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-bold text-purple-300">Wallet Status</h2>
           <div>
-            {gameBalance > 0 && (
-              <span className="text-accent-green font-bold mr-4">
-                Balance: {gameBalance.toFixed(6)} SOL
-              </span>
-            )}
+
             {primaryWallet && gameState === 'ready' && (
               <button 
                 onClick={refreshTokens}

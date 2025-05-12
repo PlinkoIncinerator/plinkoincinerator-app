@@ -253,7 +253,13 @@ export default function TokenList({
                 isProcessed ? 'border-green-500 bg-green-900/10' : 
                 isFrozen ? 'border-red-500 bg-red-900/10' :
                 isSelected ? 'border-purple-500 bg-purple-900/20' : 'border-gray-700'
-              }`}
+              } ${!(isProcessed || isFrozen) ? 'cursor-pointer hover:bg-gray-800/50' : ''}`}
+              onClick={(e) => {
+                // Only toggle if not processed or frozen and not clicking on copy button
+                if (!(isProcessed || isFrozen) && !(e.target as HTMLElement).closest('button')) {
+                  onToggleTokenSelection(token.pubkey);
+                }
+              }}
             >
               <div className="flex items-center gap-3">
                 <input

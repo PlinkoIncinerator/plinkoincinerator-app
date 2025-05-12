@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import Image from 'next/image';
 import { formatAmount, getWalletTransactions, processWithdrawal, BalanceSummary } from '../../utils/walletService';
 
@@ -26,6 +26,11 @@ export interface PlayOptions {
   resetTestBalance?: boolean; // Flag to reset the test balance
 }
 
+// Define the ref interface
+export interface PlinkoControlsRef {
+  updateBalance: (newBalance: number) => void;
+}
+
 const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
   return (
     <Image 
@@ -38,7 +43,7 @@ const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
   );
 };
 
-export default function PlinkoControls({
+const PlinkoControls = forwardRef<PlinkoControlsRef, PlinkoControlsProps>(({
   walletAddress,
   onPlay,
   disabled,
@@ -49,7 +54,7 @@ export default function PlinkoControls({
   currentBalance = 0,
   isTestMode = false,
   testBalance = 10
-}: PlinkoControlsProps) {
+}, ref) => {
   const minBetAmount = 0.0001;
   const [betAmount, setBetAmount] = useState<number>(minBetAmount);
   const [showSeedOptions, setShowSeedOptions] = useState<boolean>(false);
@@ -64,6 +69,49 @@ export default function PlinkoControls({
   // Add state for fetching balance from backend
   const [balance, setBalance] = useState<BalanceSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  
+  // Expose methods via ref
+  useImperativeHandle(ref, () => ({
+    updateBalance: (newBalance: number) => {
+      console.log('PlinkoControls: Imperatively updating balance to:', newBalance);
+      if (localTestMode) {
+        // Update test mode balance
+        setBalance(prev => ({
+          currentBalance: newBalance,
+          totalDeposits: 0,
+          totalWithdrawals: 0,
+          totalGameWins: 0,
+          totalGameLosses: 0,
+          pendingDeposits: 0,
+          pendingWithdrawals: 0
+        }));
+      } else if (newBalance > 0) {
+        // Update real balance
+        setBalance(prev => {
+          if (!prev) return {
+            currentBalance: newBalance,
+            totalDeposits: 0,
+            totalWithdrawals: 0,
+            totalGameWins: 0,
+            totalGameLosses: 0,
+            pendingDeposits: 0,
+            pendingWithdrawals: 0
+          };
+          
+          return {
+            ...prev,
+            currentBalance: newBalance
+          };
+        });
+        
+        // Maybe adjust bet amount if needed
+        const halfBalance = newBalance / 2;
+        if (betAmount > newBalance) {
+          setBetAmount(newBalance > minBetAmount ? Math.min(halfBalance, newBalance) : minBetAmount);
+        }
+      }
+    }
+  }));
   
   // Update local test mode when prop changes
   useEffect(() => {
@@ -621,4 +669,9 @@ export default function PlinkoControls({
       )}
     </div>
   );
-} 
+});
+
+// Set display name for React DevTools
+PlinkoControls.displayName = 'PlinkoControls';
+
+export default PlinkoControls; 

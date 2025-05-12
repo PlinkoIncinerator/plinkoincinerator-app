@@ -42,6 +42,7 @@ export interface GameResult {
   riskMode: 'medium';
   rows: number;
   isTestMode?: boolean;
+  path?: number[]; // Optional path for verification
 }
 
 // Default multipliers as fallback (will be overridden by server values)
@@ -56,6 +57,7 @@ export class PlinkoService {
   private listeners: Map<string, ((data: any) => void)[]> = new Map();
   private multipliers = DEFAULT_MULTIPLIERS;
   private houseEdge = 0.035; // Default house edge (3.5%)
+  private balanceUpdateListeners: ((balance: number) => void)[] = [];
   
   constructor() {
     // No need to store server URL, we'll use the apiConfig utility
@@ -185,6 +187,11 @@ export class PlinkoService {
         this.socket.on('balance:update', (data: any) => {
           console.log('Balance update received:', data);
           this.notifyListeners('balance:update', data);
+          
+          // Also notify through our custom balance update system
+          if (data && typeof data.balance === 'number') {
+            this.emitBalanceUpdate(data.balance);
+          }
         });
         
         // Set a connection timeout
@@ -413,6 +420,30 @@ export class PlinkoService {
   // Check if the socket is connected
   isConnected(): boolean {
     return this.socket !== null && this.socket.connected;
+  }
+
+  // Add a balance update listener
+  addBalanceUpdateListener(callback: (balance: number) => void): void {
+    this.balanceUpdateListeners.push(callback);
+  }
+
+  // Remove a balance update listener
+  removeBalanceUpdateListener(callback: (balance: number) => void): void {
+    this.balanceUpdateListeners = this.balanceUpdateListeners.filter(
+      listener => listener !== callback
+    );
+  }
+
+  // Emit a balance update to all listeners
+  emitBalanceUpdate(balance: number): void {
+    console.log('PlinkoService: Emitting balance update:', balance);
+    this.balanceUpdateListeners.forEach(listener => {
+      try {
+        listener(balance);
+      } catch (error) {
+        console.error('Error in balance update listener:', error);
+      }
+    });
   }
 }
 
