@@ -8,6 +8,7 @@ interface TokenListProps {
   eligibleTokens: TokenAccount[];
   selectedTokens: TokenAccount[];
   processedTokens?: TokenAccount[];
+  frozenTokens?: TokenAccount[];
   tokenSearch: string;
   onTokenSearchChange: (value: string) => void;
   onToggleTokenSelection: (pubkey: string) => void;
@@ -32,12 +33,14 @@ interface TokenAccount {
   potentialValue?: number;
   valueUsd?: number;
   hasSwapRoutes?: boolean;
+  isFrozen?: boolean;
 }
 
 export default function TokenList({
   eligibleTokens,
   selectedTokens,
   processedTokens = [],
+  frozenTokens = [],
   tokenSearch,
   onTokenSearchChange,
   onToggleTokenSelection,
@@ -46,7 +49,17 @@ export default function TokenList({
   feePercentage
 }: TokenListProps) {
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [showFrozenTokens, setShowFrozenTokens] = useState<boolean>(false);
 
+
+  console.log("eligibleTokens", eligibleTokens)
+  console.log("processedTokens", processedTokens)
+  console.log("selectedTokens", selectedTokens)
+  console.log("frozenTokens", frozenTokens)
+  console.log("tokenSearch", tokenSearch)
+  console.log("showFrozenTokens", showFrozenTokens)
+  
+  
   const handleCopyAddress = async (address: string) => {
     try {
       await navigator.clipboard.writeText(address);
@@ -57,25 +70,38 @@ export default function TokenList({
     }
   };
 
-  const filteredEligibleTokens = eligibleTokens.filter(token => {
-    const searchLower = tokenSearch.toLowerCase();
+  // Filter tokens based on search query
+  const searchLower = tokenSearch.toLowerCase();
+  const filterBySearch = (token: TokenAccount) => {
     return (
       token.name?.toLowerCase().includes(searchLower) ||
       token.symbol?.toLowerCase().includes(searchLower) ||
       token.mint.toLowerCase().includes(searchLower)
     );
-  });
+  };
 
-  const filteredProcessedTokens = processedTokens.filter(token => {
-    const searchLower = tokenSearch.toLowerCase();
-    return (
-      token.name?.toLowerCase().includes(searchLower) ||
-      token.symbol?.toLowerCase().includes(searchLower) ||
-      token.mint.toLowerCase().includes(searchLower)
-    );
-  });
-
-  const allFilteredTokens = [...filteredEligibleTokens, ...filteredProcessedTokens];
+  // Get eligible tokens filtered by search
+  const filteredEligibleTokens = eligibleTokens.filter(filterBySearch);
+  
+  // Get processed tokens filtered by search
+  const filteredProcessedTokens = processedTokens.filter(filterBySearch);
+  
+  // Use the frozenTokens prop directly instead of deriving it
+  const filteredFrozenTokens = frozenTokens.filter(filterBySearch);
+  
+  console.log("filteredFrozenTokens", filteredFrozenTokens)
+  console.log("filteredEligibleTokens", filteredEligibleTokens)
+  console.log("filteredProcessedTokens", filteredProcessedTokens)
+  
+  // Make sure we're not showing duplicates - only include non-frozen tokens in display tokens by default
+  const displayEligibleTokens = filteredEligibleTokens.filter(token => !token.isFrozen);
+  const displayProcessedTokens = filteredProcessedTokens.filter(token => !token.isFrozen);
+  
+  let displayTokens = [...displayEligibleTokens, ...displayProcessedTokens];
+  if (showFrozenTokens) {
+    // Add frozen tokens when toggled on
+    displayTokens = [...displayTokens, ...filteredFrozenTokens];
+  }
 
   return (
     <div className="mt-4 max-h-96 overflow-y-auto p-4 bg-gray-950 bg-opacity-95 rounded-lg border border-gray-800/50 shadow-xl">
@@ -85,6 +111,32 @@ export default function TokenList({
           <span className="bg-gray-900 rounded-full px-3 py-1 text-xs text-gray-200">
             {selectedTokens.length}/{eligibleTokens.length} selected
           </span>
+          {frozenTokens.length > 0 && (
+            <button 
+              onClick={() => setShowFrozenTokens(!showFrozenTokens)}
+              className={`text-xs px-3 py-1.5 ${
+                showFrozenTokens 
+                  ? 'bg-red-700 border-red-500 text-white font-medium' 
+                  : 'bg-red-900/60 border-red-700/50 text-red-100'
+              } hover:bg-red-700 border rounded-md transition-all flex items-center gap-1 animate-pulse`}
+            >
+              {showFrozenTokens ? (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                  Hide {frozenTokens.length} Frozen
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Show {frozenTokens.length} Frozen
+                </>
+              )}
+            </button>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => onToggleAllTokens(true)}
@@ -110,6 +162,9 @@ export default function TokenList({
           <div>
             <p className="text-blue-200 mb-1">Empty token accounts take up space in your wallet.</p>
             <p className="text-gray-300">Burn them to get {(0.00203928 * (1 - feePercentage)).toFixed(8)} SOL each (after {(feePercentage * 100).toFixed(2)}% fee).</p>
+            {showFrozenTokens && frozenTokens.length > 0 && (
+              <p className="text-red-300 mt-1">Note: Frozen tokens cannot be incinerated due to their locked state.</p>
+            )}
           </div>
         </div>
       </div>
@@ -161,10 +216,21 @@ export default function TokenList({
         </div>
       </div>
       
+      {showFrozenTokens && filteredFrozenTokens.length > 0 && (
+        <div className="mb-4 p-3 bg-red-900/30 rounded-md border border-red-800/50">
+          <h4 className="text-red-300 font-medium mb-2">Frozen Tokens</h4>
+          <p className="text-xs text-gray-300 mb-3">
+            These tokens are frozen and cannot be incinerated without being unfrozen by the token's authority first.
+          </p>
+        </div>
+      )}
+      
       <div className="space-y-2 max-h-[400px] overflow-y-auto">
-        {allFilteredTokens.map((token) => {
+        {displayTokens.map((token) => {
           const isSelected = selectedTokens.some(t => t.pubkey === token.pubkey);
           const isProcessed = token.isProcessed;
+          const isFrozen = token.isFrozen;
+          
           const accountClosureValue = 0.00203928; // Value from closing the account
           const tokenValueInSol = token.valueUsd && solToUsd ? token.valueUsd / solToUsd : 0;
           const netAccountClosureSol = accountClosureValue * (1 - feePercentage);
@@ -177,6 +243,7 @@ export default function TokenList({
               key={token.pubkey}
               className={`flex items-center justify-between p-3 rounded-lg border ${
                 isProcessed ? 'border-green-500 bg-green-900/10' : 
+                isFrozen ? 'border-red-500 bg-red-900/10' :
                 isSelected ? 'border-purple-500 bg-purple-900/20' : 'border-gray-700'
               }`}
             >
@@ -185,12 +252,17 @@ export default function TokenList({
                   type="checkbox"
                   checked={isSelected}
                   onChange={() => onToggleTokenSelection(token.pubkey)}
-                  disabled={isProcessed}
-                  className={`w-4 h-4 rounded focus:ring-purple-500 ${isProcessed ? 'opacity-50 cursor-not-allowed' : 'text-purple-600'}`}
+                  disabled={isProcessed || isFrozen}
+                  className={`w-4 h-4 rounded focus:ring-purple-500 ${(isProcessed || isFrozen) ? 'opacity-50 cursor-not-allowed' : 'text-purple-600'}`}
                 />
                 {isProcessed && (
                   <span className="text-xs bg-green-800 text-green-200 px-2 py-0.5 rounded-md">
                     Processed
+                  </span>
+                )}
+                {token.isFrozen && (
+                  <span className="text-xs bg-red-800 text-red-200 px-2 py-0.5 rounded-md ml-1">
+                    Frozen
                   </span>
                 )}
                 
@@ -215,6 +287,11 @@ export default function TokenList({
                       <span className="font-medium text-white">
                         {token.symbol || 'Unknown Token'}
                       </span>
+                      {token.isFrozen && (
+                        <span className="ml-1 text-xs text-red-400 bg-red-900/30 px-1.5 py-0.5 rounded" title="This token account is frozen and cannot be burned. It can only be unfrozen by the token's authority.">
+                          Cannot Incinerate
+                        </span>
+                      )}
                       <button
                         onClick={() => handleCopyAddress(token.mint)}
                         className="text-gray-400 hover:text-white transition-colors"
@@ -271,12 +348,24 @@ export default function TokenList({
                       Insufficient liquidity for swapping
                     </div>
                   )}
+                  
+                  {token.isFrozen && (
+                    <div className="text-xs text-red-400 mt-1">
+                      Account is frozen by token authority
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
           );
         })}
       </div>
+      
+      {displayTokens.length === 0 && (
+        <div className="flex justify-center items-center py-8">
+          <p className="text-gray-400">No tokens match your search</p>
+        </div>
+      )}
       
       {eligibleTokens.length > 6 && (
         <div className="mt-4 text-center">

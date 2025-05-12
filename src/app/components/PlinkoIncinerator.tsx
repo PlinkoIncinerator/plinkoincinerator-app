@@ -44,6 +44,7 @@ interface FormattedTokenAccount {
   potentialValue?: number;
   valueUsd?: number;
   hasSwapRoutes?: boolean;
+  isFrozen?: boolean;
 }
 
 // Interface for burn results
@@ -258,7 +259,7 @@ export default function PlinkoIncinerator() {
       setScanStage('metadata');
       
       const mintAddresses = formattedAccounts.map(account => account.mint);
-      const metadata = await batchGetTokenMetadata(mintAddresses);
+      const metadata = await batchGetTokenMetadata(mintAddresses, primaryWallet.address);
       
       // Update accounts with prices and calculate eligibility
       const updatedAccounts = formattedAccounts.map(account => {
@@ -280,19 +281,26 @@ export default function PlinkoIncinerator() {
         // 1. It has zero balance (empty account), OR
         // 2. It has no swap routes available (regardless of reported value), OR
         // 3. Its value is below the max threshold
+        // 4. BUT, a token is NEVER eligible if it's frozen
 
         console.log("tokenMetadata", tokenMetadata);
       
         const hasNoSwapRoutes = tokenMetadata?.hasSwapRoutes === false;
-        const isEligible = account.amount === 0 || hasNoSwapRoutes || tokenValueUsd <= maxValueInUsd;
+        const isFrozen = tokenMetadata?.isFrozen === true;
+        
+        // Frozen tokens are never eligible
+        const isEligible = !isFrozen && (account.amount === 0 || hasNoSwapRoutes || tokenValueUsd <= maxValueInUsd);
 
         console.log("hasNoSwapRoutes", hasNoSwapRoutes);
+        console.log("isFrozen", isFrozen);
         console.log("isEligible", isEligible);
         console.log("account.amount", account.amount);
         console.log("tokenValueUsd", tokenValueUsd);
         console.log("maxValueInUsd", maxValueInUsd);
 
-        if (hasNoSwapRoutes && tokenValueUsd > 0) {
+        if (isFrozen) {
+          console.log(`Token ${account.mint} is frozen and cannot be incinerated`);
+        } else if (hasNoSwapRoutes && tokenValueUsd > 0) {
           console.log(`Token ${account.mint} has reported value of $${tokenValueUsd.toFixed(2)} but insufficient liquidity - marking as eligible for burning`);
         }
         
@@ -303,6 +311,7 @@ export default function PlinkoIncinerator() {
           logoUrl: tokenMetadata?.image || '',
           valueUsd: tokenValueUsd,
           hasSwapRoutes: tokenMetadata?.hasSwapRoutes || false,
+          isFrozen: isFrozen,
           isEligible,
           isSelected: isEligible,
           potentialValue: isEligible ? 0.00203928 * (1 - feePercentage) : 0
@@ -337,6 +346,15 @@ export default function PlinkoIncinerator() {
         });
       });
       addDebugMessage('Token prices and eligibility updated');
+      
+      // Add this after line 202 (after token prices and eligibility are updated and accounted)
+      const frozenTokens = updatedAccounts.filter(account => account.isFrozen);
+      if (frozenTokens.length > 0) {
+        addDebugMessage(`Found ${frozenTokens.length} frozen token accounts that cannot be incinerated`);
+        frozenTokens.forEach(token => {
+          addDebugMessage(`Frozen token: ${token.name} (${token.mint.slice(0, 6)}...${token.mint.slice(-4)})`);
+        });
+      }
       
       setScanProgress(100);
       setScanStage('done');
@@ -780,9 +798,18 @@ export default function PlinkoIncinerator() {
   const eligibleTokens = tokenAccounts.filter(account => account.isEligible);
   const selectedTokens = tokenAccounts.filter(account => account.isEligible && account.isSelected);
   const processedTokens = tokenAccounts.filter(account => account.isProcessed);
+  const frozenTokens = tokenAccounts.filter(account => account.isFrozen === true);
   
+  console.log("PlinkoIncinerator frozenTokens", frozenTokens) 
+  console.log("PlinkoIncinerator eligibleTokens", eligibleTokens)
+  console.log("PlinkoIncinerator processedTokens", processedTokens)
+  console.log("PlinkoIncinerator selectedTokens", selectedTokens)
+  console.log("PlinkoIncinerator tokenAccounts", tokenAccounts)
   // Show processed tokens in the UI but mark them differently
-  const allDisplayTokens = [...eligibleTokens, ...processedTokens];
+  const allDisplayTokens = [...eligibleTokens, ...processedTokens, ...frozenTokens];
+  
+  // Log counts to help with debugging
+  console.log(`Token counts - Eligible: ${eligibleTokens.length}, Selected: ${selectedTokens.length}, Processed: ${processedTokens.length}, Frozen: ${frozenTokens.length}, Total: ${tokenAccounts.length}`);
   
   // Calculate potential SOL from burning tokens
   const totalPotentialValue = selectedTokens.reduce((total, token) => {
@@ -1033,12 +1060,12 @@ export default function PlinkoIncinerator() {
                     {showTokenList ? "Hide Token List" : "Show Token List"}
                   </button>
                 </div>
-                
                 {showTokenList && (
                   <TokenList 
                     eligibleTokens={eligibleTokens}
                     selectedTokens={selectedTokens}
                     processedTokens={processedTokens}
+                    frozenTokens={frozenTokens}
                     tokenSearch={tokenSearch}
                     onTokenSearchChange={setTokenSearch}
                     onToggleTokenSelection={toggleTokenSelection}

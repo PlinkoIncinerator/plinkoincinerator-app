@@ -2,6 +2,9 @@ import { Config } from "../config/solana";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { burnTokens, verifyTransactionWithServer } from "./tokenBurner";
 
+// Simple delay function to help with rate limiting
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * Process tokens in smaller batches
  */
@@ -47,6 +50,9 @@ export async function batchBurnTokens(
       };
     }
 
+    // Add a small delay to avoid rate limiting
+    await delay(50);
+
     // Get all token accounts
     const atas = await Config.connection.getParsedTokenAccountsByOwner(
       Config.solWallet.publicKey,
@@ -63,6 +69,35 @@ export async function batchBurnTokens(
       );
     }
     
+    // Check for frozen accounts and filter them out
+    const frozenAccounts: string[] = [];
+    const nonfrozenAccounts: any[] = [];
+    
+    for (const account of accountsToProcess) {
+      try {
+        const state = account.account.data.parsed.info.state;
+        if (state === "frozen") {
+          frozenAccounts.push(account.pubkey.toString());
+          console.log(`Skipping frozen token account: ${account.pubkey.toString()}`);
+        } else {
+          nonfrozenAccounts.push(account);
+        }
+      } catch (err) {
+        // If we can't determine the state, include it (we'll let burnTokens handle it)
+        nonfrozenAccounts.push(account);
+      }
+    }
+    
+    // If we found frozen accounts, log them
+    if (frozenAccounts.length > 0) {
+      console.log(`Skipped ${frozenAccounts.length} frozen token accounts`);
+      if (progressCallback) {
+        progressCallback(0, `Skipped ${frozenAccounts.length} frozen token accounts that cannot be processed`);
+      }
+    }
+    
+    // Replace the accounts to process with the filtered list
+    accountsToProcess = nonfrozenAccounts;
     const totalCount = accountsToProcess.length;
     
     // Sort accounts by complexity - empty accounts first, then accounts with tokens
@@ -83,7 +118,9 @@ export async function batchBurnTokens(
     if (totalCount === 0) {
       return {
         success: false,
-        message: "No token accounts available to incinerate on batchTokenBurner.ts",
+        message: frozenAccounts.length > 0 
+          ? `No token accounts available to incinerate (${frozenAccounts.length} frozen accounts were skipped)`
+          : "No token accounts available to incinerate on batchTokenBurner.ts",
         processedCount: 0,
         totalCount: 0,
         signatures: [],
