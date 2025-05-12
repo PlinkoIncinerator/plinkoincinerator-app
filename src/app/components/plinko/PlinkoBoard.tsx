@@ -46,6 +46,7 @@ export default function PlinkoBoard({
   ballId = 0
 }: PlinkoBoardProps) {
   const [showPath, setShowPath] = useState(showPathInitially);
+  const [isBrowser, setIsBrowser] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
   const renderRef = useRef<Matter.Render | null>(null);
@@ -64,6 +65,17 @@ export default function PlinkoBoard({
   
   // Track previous ballId to detect changes
   const prevBallIdRef = useRef<number>(0);
+  
+  // Function to detect if we're on a mobile device - safely checking for window
+  const isMobileDevice = useCallback(() => {
+    if (!isBrowser) return false;
+    return window.innerWidth < 768;
+  }, [isBrowser]);
+  
+  // Set isBrowser to true when component mounts
+  useEffect(() => {
+    setIsBrowser(true);
+  }, []);
   
   // Initialize handleCollisions once
   useEffect(() => {
@@ -186,7 +198,8 @@ export default function PlinkoBoard({
   
   // Initialize physics engine
   useEffect(() => {
-    if (!canvasRef.current || !containerRef.current) return;
+    // Skip if not in browser or refs not ready
+    if (!isBrowser || !canvasRef.current || !containerRef.current) return;
     
     // Get container dimensions
     const containerWidth = containerRef.current.clientWidth;
@@ -194,14 +207,14 @@ export default function PlinkoBoard({
     
     // Create engine with optimized settings to prevent sticking
     const engine = Matter.Engine.create({
-      positionIterations: 8,   // Increased from 6 for more accuracy
-      velocityIterations: 6,   // Increased from 4 for more accuracy
+      positionIterations: isMobileDevice() ? 6 : 8,   // Reduce iterations on mobile
+      velocityIterations: isMobileDevice() ? 4 : 6,   // Reduce iterations on mobile
       enableSleeping: true,    // Enable sleeping for better performance
       constraintIterations: 2  // Fewer iterations for better performance
     });
     
     // Set engine parameters to improve simulation
-    engine.timing.timeScale = 1.0; // Reduced from 1.2 for more controlled movement
+    engine.timing.timeScale = isMobileDevice() ? 0.9 : 1.0; // Slightly slower on mobile for more predictable movement
     
     // Set gravity - decrease for more predictable ball movement
     engine.gravity.y = 0.8;  // Reduced from 1.2
@@ -217,7 +230,7 @@ export default function PlinkoBoard({
         height: containerHeight,
         wireframes: false,
         background: 'transparent',
-        pixelRatio: Math.min(window.devicePixelRatio, 2), // Limit pixel ratio for better performance
+        pixelRatio: Math.min(window.devicePixelRatio || 1, isMobileDevice() ? 1.5 : 2), // Further limit pixel ratio on mobile
       }
     });
     renderRef.current = render;
@@ -305,7 +318,12 @@ export default function PlinkoBoard({
     const topPins = 3;
     const bottomPins = 18;
     const pinsIncrement = (bottomPins - topPins) / (rows - 1);
-    const pinRadius = containerWidth / (bottomPins * 10);
+    
+    // Optimize pin size for mobile
+    const pinRadius = isMobileDevice() 
+      ? containerWidth / (bottomPins * 12)  // Smaller pins on mobile
+      : containerWidth / (bottomPins * 10);
+      
     // Store pinRadius in the ref
     pinRadiusRef.current = pinRadius;
     
@@ -365,7 +383,7 @@ export default function PlinkoBoard({
         const newWidth = containerRef.current.clientWidth;
         const newHeight = containerRef.current.clientHeight;
         
-        Matter.Render.setPixelRatio(renderRef.current, window.devicePixelRatio);
+        Matter.Render.setPixelRatio(renderRef.current, Math.min(window.devicePixelRatio || 1, isMobileDevice() ? 1.5 : 2));
         renderRef.current.options.width = newWidth;
         renderRef.current.options.height = newHeight;
         renderRef.current.canvas.width = newWidth;
@@ -377,17 +395,21 @@ export default function PlinkoBoard({
       }
     };
     
-    window.addEventListener('resize', handleResize);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('resize', handleResize);
+    }
     
     return () => {
-      window.removeEventListener('resize', handleResize);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('resize', handleResize);
+      }
       Matter.Events.off(engine, 'collisionStart', handleCollisionsRef.current);
       Matter.Events.off(engine, 'collisionActive', handleCollisionsRef.current);
       Matter.Render.stop(render);
       Matter.Runner.stop(runner);
       Matter.Engine.clear(engine);
     };
-  }, [rows, multipliers, riskMode]);
+  }, [rows, multipliers, riskMode, isMobileDevice, isBrowser]);
   
   // Function to calculate path points
   const calculatePathPoints = (pathDirections: number[]) => {
@@ -769,22 +791,22 @@ export default function PlinkoBoard({
   return (
     <div 
       ref={containerRef} 
-      className="w-full h-full relative overflow-hidden rounded-lg"
+      className="w-full h-full relative overflow-hidden rounded-lg touch-none"
+      style={{ minHeight: isMobileDevice() ? '85vh' : '500px' }}
     >
       <canvas ref={canvasRef} className="w-full h-full" />
       
-      {/* Controls */}
-      <div className="absolute top-2 right-2 z-10 flex gap-2">
-        {path.length > 0 && (
+      {/* Controls - desktop only */}
+      {isBrowser && !isMobileDevice() && path.length > 0 && (
+        <div className="absolute top-2 right-2 z-10 flex gap-2">
           <button 
             className="bg-gray-800 text-white text-xs px-2 py-1 rounded-md opacity-70 hover:opacity-100"
             onClick={() => setShowPath(!showPath)}
           >
             {showPath ? 'Hide Path' : 'Show Path'}
           </button>
-        )}
-        
-      </div>
+        </div>
+      )}
       
       {/* Multiplier display at the bottom */}
       <div className="absolute bottom-0 left-0 right-0 flex justify-between">
@@ -804,7 +826,8 @@ export default function PlinkoBoard({
               className={`text-xs md:text-sm px-1 py-1 ${bgColor} text-white rounded flex items-center justify-center`}
               style={{ 
                 width: `${100 / multipliers.length}%`,
-                fontSize: multipliers.length > 15 ? '0.5rem' : undefined,
+                fontSize: isBrowser && isMobileDevice() && multipliers.length > 15 ? '0.45rem' : 
+                          multipliers.length > 15 ? '0.5rem' : undefined,
                 fontWeight: 'bold'
               }}
             >

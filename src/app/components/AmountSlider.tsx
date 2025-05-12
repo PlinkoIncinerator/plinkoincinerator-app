@@ -13,7 +13,7 @@ const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
   return (
     <Image 
       src="/solana-logo.svg" 
-      alt="SOL" 
+      alt="Solana" 
       width={width} 
       height={height}
       className={`inline-block ${className}`}
@@ -102,6 +102,24 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
     }, 300); // 300ms debounce
   };
 
+  // Handle touch events for slider
+  const handleTouchStart = (e: React.TouchEvent<HTMLInputElement>) => {
+    // Prevent default to avoid scrolling while touching the slider
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLInputElement>) => {
+    // This keeps the event exclusive to the slider and prevents scrolling
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
   // Handle slider change
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const index = parseInt(e.target.value);
@@ -159,7 +177,17 @@ export default function AmountSlider({ onChange, initialAmount = 0.1 }: AmountSl
           step="1"
           value={valueOptionsUsd.indexOf(selectedUsdValue)}
           onChange={handleSliderChange}
-          className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-green-500"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          className="w-full h-2 bg-gray-700 rounded-full appearance-none cursor-pointer
+            hover:opacity-100 active:opacity-100 focus:outline-none 
+            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-green-500 [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-900 [&::-webkit-slider-thumb]:shadow-md
+            [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-green-500 [&::-moz-range-thumb]:cursor-pointer [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-900 [&::-moz-range-thumb]:shadow-md
+            [&::-ms-thumb]:appearance-none [&::-ms-thumb]:w-5 [&::-ms-thumb]:h-5 [&::-ms-thumb]:rounded-full [&::-ms-thumb]:bg-green-500 [&::-ms-thumb]:cursor-pointer [&::-ms-thumb]:border-2 [&::-ms-thumb]:border-gray-900 [&::-ms-thumb]:shadow-md
+            [&::-webkit-slider-runnable-track]:h-2 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-gray-700
+            [&::-moz-range-track]:h-2 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-gray-700
+            [&::-ms-track]:h-2 [&::-ms-track]:rounded-full [&::-ms-track]:bg-gray-700"
         />
       </div>
       

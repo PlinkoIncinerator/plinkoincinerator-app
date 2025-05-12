@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import { formatAmount } from '../../utils/walletService';
 import { API_BASE_URL } from '../../config/constants';
 
 interface PlinkoMetricsProps {
-  refreshInterval?: number; // How often to refresh the metrics in ms
-  onMetricsLoaded?: (metrics: GameMetrics | null) => void; // Callback when metrics are loaded
+  refreshInterval?: number;
+  onMetricsLoaded?: (metrics: GameMetrics | null) => void;
 }
 
 interface GameMetrics {
@@ -20,7 +20,13 @@ interface GameMetrics {
   lastUpdated: Date;
 }
 
-const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
+interface SolanaLogoProps {
+  width?: number;
+  height?: number;
+  className?: string;
+}
+
+const SolanaLogo = React.memo(({ width = 16, height = 14, className = "" }: SolanaLogoProps) => {
   return (
     <Image 
       src="/solana-logo.svg" 
@@ -30,18 +36,32 @@ const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
       className={`inline-block ${className}`}
     />
   );
-};
+});
+SolanaLogo.displayName = 'SolanaLogo';
 
-// Animation component for numbers
+// Animation component for numbers using refs to prevent re-renders
 const AnimatedCounter = ({ value, duration = 1, decimals = 0, prefix = '', suffix = '' }) => {
   const [displayValue, setDisplayValue] = useState(0);
+  const startValueRef = useRef(0);
+  const animationFrameRef = useRef<number | null>(null);
+  const prevValueRef = useRef(value);
   
   useEffect(() => {
+    // Only animate if the value has changed
+    if (prevValueRef.current === value) return;
+    
+    // Update previous value reference
+    prevValueRef.current = value;
+    
+    // Animation variables
     let startTime: number;
-    let animationFrame: number;
-    const startValue = displayValue;
+    const startValue = startValueRef.current;
     const endValue = value;
     
+    // Update reference for next animation
+    startValueRef.current = value;
+    
+    // Animation frame callback
     const updateValue = (timestamp: number) => {
       if (!startTime) startTime = timestamp;
       const progress = Math.min((timestamp - startTime) / (duration * 1000), 1);
@@ -50,14 +70,25 @@ const AnimatedCounter = ({ value, duration = 1, decimals = 0, prefix = '', suffi
       setDisplayValue(currentValue);
       
       if (progress < 1) {
-        animationFrame = requestAnimationFrame(updateValue);
+        animationFrameRef.current = requestAnimationFrame(updateValue);
       }
     };
     
-    animationFrame = requestAnimationFrame(updateValue);
+    // Cancel any existing animation before starting a new one
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
     
-    return () => cancelAnimationFrame(animationFrame);
-  }, [value, duration, displayValue]);
+    // Start the animation
+    animationFrameRef.current = requestAnimationFrame(updateValue);
+    
+    // Cleanup
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [value, duration]);
 
   return (
     <span>
@@ -70,63 +101,101 @@ const AnimatedCounter = ({ value, duration = 1, decimals = 0, prefix = '', suffi
   );
 };
 
-export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded }: PlinkoMetricsProps) {
-  const [metrics, setMetrics] = useState<GameMetrics | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+// Simplified version with minimal state changes
+export default React.memo(function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded }: PlinkoMetricsProps) {
+  // Single source of truth for state to avoid circular updates
+  const [state, setState] = useState({
+    metrics: null as GameMetrics | null,
+    loading: true,
+    error: null as string | null,
+    randomBalls: Math.floor(Math.random() * 5) + 1
+  });
   
+  // Use a ref to track if we've already run the effect
+  const isInitializedRef = useRef(false);
+  // Use a ref to store the interval ID
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Use callback for fetchMetrics to stabilize it
   const fetchMetrics = useCallback(async () => {
     try {
-      setLoading(true);
-      console.log('API_BASE_URL', API_BASE_URL);
-      
-      // Use the same fetch pattern as walletService with API_BASE_URL
-      const response = await fetch(`${API_BASE_URL}/api/plinko/metrics`);
+      console.log('Fetching metrics...');
+      const response = await fetch(`${API_BASE_URL}/api/plinko/metrics`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      });
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to fetch metrics');
+        throw new Error('Failed to fetch metrics');
       }
       
       const data = await response.json();
       
-      // Transform the data to match our expected format
-      const formattedMetrics = {
-        totalSolBurned: data.totalSolBurned,
-        totalBallsDropped: data.totalBallsDropped,
-        totalSolWon: data.totalSolWon,
-        totalSolLost: data.totalSolLost,
-        biggestWin: data.biggestWin,
-        activePlayers: data.activePlayers,
-        lastUpdated: new Date(data.lastUpdated)
+      // Process the data
+      const newMetrics = {
+        totalSolBurned: data.totalSolBurned || 0,
+        totalBallsDropped: data.totalBallsDropped || 0,
+        totalSolWon: data.totalSolWon || 0,
+        totalSolLost: data.totalSolLost || 0,
+        biggestWin: data.biggestWin || 0,
+        activePlayers: data.activePlayers || 0,
+        lastUpdated: new Date(data.lastUpdated || Date.now())
       };
       
-      setMetrics(formattedMetrics);
+      // Update state once with all changes
+      setState(prevState => ({
+        ...prevState,
+        metrics: newMetrics,
+        loading: false,
+        error: null,
+        randomBalls: Math.floor(Math.random() * 5) + 1
+      }));
       
-      // Call the onMetricsLoaded callback if provided
+      // Call the callback if provided
       if (onMetricsLoaded) {
-        onMetricsLoaded(formattedMetrics);
+        onMetricsLoaded(newMetrics);
       }
       
-      setError(null);
     } catch (err) {
       console.error('Error fetching metrics:', err);
-      setError('Failed to load metrics data');
-    } finally {
-      setLoading(false);
+      setState(prevState => ({
+        ...prevState,
+        error: 'Failed to load metrics data',
+        loading: false
+      }));
     }
   }, [onMetricsLoaded]);
   
+  // Effect to fetch data and set up interval - runs only once
   useEffect(() => {
+    // Exit if we've already initialized
+    if (isInitializedRef.current) return;
+    isInitializedRef.current = true;
+    
+    // Initial fetch
     fetchMetrics();
     
-    // Set up interval to refresh metrics
-    const intervalId = setInterval(fetchMetrics, refreshInterval);
+    // Set up interval for refreshing
+    if (refreshInterval > 0) {
+      intervalRef.current = setInterval(fetchMetrics, refreshInterval);
+    }
     
-    // Clear interval on component unmount
-    return () => clearInterval(intervalId);
-  }, [refreshInterval, fetchMetrics]);
+    // Cleanup
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [refreshInterval, fetchMetrics]);  // Add dependencies
   
+  // Extract values from state for rendering
+  const { metrics, loading, error, randomBalls } = state;
+  
+  // Loading state
   if (loading && !metrics) {
     return (
       <div className="flex justify-center py-10">
@@ -138,13 +207,24 @@ export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded
     );
   }
   
-  if (error) {
+  // Error state
+  if (error && !metrics) {
     return (
       <div className="bg-red-900 bg-opacity-50 text-white p-4 rounded-lg text-center">
         <p>Error: {error}</p>
       </div>
     );
   }
+  
+  // Default values for metrics
+  const {
+    totalSolBurned = 0,
+    totalBallsDropped = 0,
+    totalSolWon = 0,
+    biggestWin = 0,
+    activePlayers = 0,
+    lastUpdated = new Date()
+  } = metrics || {};
   
   return (
     <div className="relative py-6">
@@ -158,15 +238,15 @@ export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded
         <div className="bg-gradient-to-br from-purple-900 to-black rounded-xl p-5 shadow-xl transform hover:scale-105 transition-all duration-300 border border-purple-800 border-opacity-40 relative overflow-hidden group">
           <div className="absolute -bottom-2 -right-2 w-16 h-16 text-purple-500 opacity-10 group-hover:opacity-20 transition-opacity text-6xl">🔥</div>
           <div className="flex justify-between items-start mb-3">
-            <h3 className="text-lg font-semibold text-gray-300">Total <SolanaLogo width={14} height={12} /> Recovered</h3>
+            <h3 className="text-lg font-semibold text-gray-300">Total SOL Recovered</h3>
             <span className="text-2xl">🔥</span>
           </div>
           <div className="text-3xl font-bold text-purple-400 flex items-center">
-            {formatAmount(metrics?.totalSolBurned || 0)}
+            {formatAmount(totalSolBurned)}
           </div>
           <div className="text-xs text-gray-500 mt-2 flex items-center">
             <span className="animate-pulse mr-1">●</span>
-            Last updated: {metrics?.lastUpdated.toLocaleTimeString()}
+            Last updated: {lastUpdated.toLocaleTimeString()}
           </div>
         </div>
         
@@ -178,10 +258,10 @@ export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded
             <span className="text-2xl">🎮</span>
           </div>
           <div className="text-3xl font-bold text-blue-400">
-            <AnimatedCounter value={metrics?.totalBallsDropped || 0} suffix="" />
+            {totalBallsDropped.toLocaleString()}
           </div>
           <div className="text-xs text-gray-500 mt-2">
-            <span className="text-blue-400">{Math.floor(Math.random() * 5) + 1}</span> balls dropped in the last minute
+            <span className="text-blue-400">{randomBalls}</span> balls dropped in the last minute
           </div>
         </div>
         
@@ -193,7 +273,7 @@ export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded
             <span className="text-2xl">💰</span>
           </div>
           <div className="text-3xl font-bold text-green-400 flex items-center">
-            {formatAmount(metrics?.totalSolWon || 0)}
+            {formatAmount(totalSolWon)}
           </div>
           <div className="text-xs text-gray-500 mt-2">
             <span className="text-green-400">+{formatAmount(0.015).replace(' SOL', '')}</span> in the last hour
@@ -208,7 +288,7 @@ export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded
             <span className="text-2xl">🏆</span>
           </div>
           <div className="text-3xl font-bold text-pink-400 flex items-center">
-            {formatAmount(metrics?.biggestWin || 0)}
+            {formatAmount(biggestWin)}
           </div>
           <div className="text-xs text-gray-500 mt-2">
             Could you be next? <span className="text-pink-400">Try your luck!</span>
@@ -223,11 +303,11 @@ export default function PlinkoMetrics({ refreshInterval = 60000, onMetricsLoaded
             <div className="text-gray-300 mb-1">Active Players</div>
             <div className="text-2xl font-bold text-white flex items-center justify-center space-x-2">
               <span className="inline-block h-3 w-3 bg-green-500 rounded-full animate-pulse"></span>
-              <AnimatedCounter value={metrics?.activePlayers || 0} prefix="" suffix=" online" />
+              <span>{activePlayers} online</span>
             </div>
           </div>
         </div>
       </div>
     </div>
   );
-} 
+}); 

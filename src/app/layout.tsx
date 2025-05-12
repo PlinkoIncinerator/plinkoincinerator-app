@@ -5,6 +5,7 @@ import ClientWrapper from "./components/clientwrapper";
 import Script from "next/script";
 import GoogleAnalytics from "./components/GoogleAnalytics";
 import { Suspense } from "react";
+import ErrorBoundaryWrapper from "./components/ErrorBoundaryWrapper";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -67,10 +68,12 @@ export default function RootLayout({
         </Script>
 
         <ClientWrapper>
-          <Suspense fallback={null}>
-            <GoogleAnalytics />
-          </Suspense>
-          {children}
+          <ErrorBoundaryWrapper>
+            <Suspense fallback={null}>
+              <GoogleAnalytics />
+            </Suspense>
+            {children}
+          </ErrorBoundaryWrapper>
         </ClientWrapper>
       </body>
     </html>

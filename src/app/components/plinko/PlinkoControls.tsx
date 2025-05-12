@@ -151,6 +151,24 @@ export default function PlinkoControls({
   // Format the current bet amount for display
   const formattedBetAmount = formatAmount(betAmount).replace(' SOL', '');
   
+  // Handle touch events for slider
+  const handleTouchStart = (e: React.TouchEvent<HTMLInputElement>) => {
+    // Prevent default to avoid scrolling while touching the slider
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLInputElement>) => {
+    // This keeps the event exclusive to the slider and prevents scrolling
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  
   // Handle bet amount changes from slider
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(e.target.value);
@@ -388,6 +406,9 @@ export default function PlinkoControls({
           step={minBetAmount}
           value={betAmount}
           onChange={handleSliderChange}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
           disabled={disabled}
         />

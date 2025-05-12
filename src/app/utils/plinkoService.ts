@@ -262,6 +262,12 @@ export class PlinkoService {
       throw new Error('Not connected to the Plinko server');
     }
     
+    // Validate the bet amount
+    if (!options.betAmount || options.betAmount <= 0) {
+      console.error('Invalid bet amount:', options.betAmount);
+      throw new Error('Bet amount must be greater than 0');
+    }
+    
     console.log('Emitting game:play event with options:', options);
     // Send play request without rows - the backend will use its fixed value
     const playOptions = {
@@ -404,4 +410,21 @@ export class PlinkoService {
       });
     });
   }
+  
+  // Check if the socket is connected
+  isConnected(): boolean {
+    return this.socket !== null && this.socket.connected;
+  }
+}
+
+// Create a singleton instance to share across components
+let plinkoServiceInstance: PlinkoService | null = null;
+
+// Function to get the singleton instance
+export function getPlinkoService(): PlinkoService {
+  if (!plinkoServiceInstance) {
+    console.log('Creating new PlinkoService singleton instance');
+    plinkoServiceInstance = new PlinkoService();
+  }
+  return plinkoServiceInstance;
 } 

@@ -100,13 +100,13 @@ export async function processWithdrawal(walletAddress: string, amount: number, d
 }
 
 /**
- * Format transaction amount with SOL symbol
+ * Format transaction amount without SOL symbol
  */
 export function formatAmount(amount: number | null | undefined): string {
   if (amount === null || amount === undefined || isNaN(Number(amount))) {
-    return '0.00000 SOL';
+    return '0.00000';
   }
-  return `${Number(amount).toFixed(5)} SOL`;
+  return `${Number(amount).toFixed(5)}`;
 }
 
 /**
