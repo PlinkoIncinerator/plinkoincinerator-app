@@ -127,6 +127,7 @@ export default function PlinkoBoard({
   const engineRef = useRef<Matter.Engine | null>(null);
   const renderRef = useRef<Matter.Render | null>(null);
   const runnerRef = useRef<Matter.Runner | null>(null);
+  const resultBinRef = useRef<number | null>(null);
   const [hitBinIndex, setHitBinIndex] = useState<number | null>(null);
 
   const cleanupPhysicsWorld = () => {
@@ -171,8 +172,19 @@ export default function PlinkoBoard({
         }
 
         if (binBody) {
-          setHitBinIndex(resultBin);
-          setTimeout(() => setHitBinIndex(null), 300);
+          const ballBody = [bodyA, bodyB].find((b) => b.label === "ball");
+
+          if (ballBody && ballBody.plugin?.targetBin) {
+            const targetBin = ballBody.plugin.targetBin;
+            console.log("Ball landed, intended bin:", targetBin);
+
+            setHitBinIndex(targetBin !== null ? targetBin - 1 : 0);
+            setTimeout(() => setHitBinIndex(null), 300);
+
+            if (onAnimationComplete) {
+              onAnimationComplete();
+            }
+          }
         }
       });
     });
@@ -297,7 +309,7 @@ export default function PlinkoBoard({
         Matter.Composite.remove(engineRef.current!.world, effect);
       } else {
         Matter.Body.scale(effect, 1.1, 1.1);
-        effect.render.fillStyle = `rgba(255, 255, 255, ${1 - (scaleStep - 1)})`; 
+        effect.render.fillStyle = `rgba(255, 255, 255, ${1 - (scaleStep - 1)})`;
       }
     }, 50);
   }
@@ -331,8 +343,11 @@ export default function PlinkoBoard({
           category: ballCategory,
           mask: ~ballCategory,
         },
+        label: "ball",
+        plugin: { targetBin: resultBin },
       }
     );
+
     Matter.Composite.add(engineRef.current.world, ball);
   }, [resultBin, ballId]);
 
@@ -353,10 +368,13 @@ export default function PlinkoBoard({
     if (isPlaying && resultBin) {
       // Clean up old balls first to maintain performance
       // cleanupCompletedBalls();
-      console.log("Creating new ball from ballId change:", ballId);
       createBall();
     }
   }, [isPlaying, resultBin, ballId, createBall]);
+
+  useEffect(() => {
+    resultBinRef.current = resultBin;
+  }, [resultBin]);
 
   return (
     <div
@@ -378,7 +396,9 @@ export default function PlinkoBoard({
           return (
             <div
               key={index}
-              className={`text-xs md:text-sm px-1 py-1 ${bgColor} text-white rounded flex items-center justify-center ${index === hitBinIndex ? 'animate-blink-effect' : ''}`}
+              className={`text-xs md:text-sm px-1 py-1 ${bgColor} text-white rounded flex items-center justify-center ${
+                index === hitBinIndex ? "animate-lightning-flash" : ""
+              }`}
               style={{
                 width: `${100 / multipliers.length}%`,
                 fontSize: multipliers.length > 15 ? "0.65rem" : undefined,
