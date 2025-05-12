@@ -159,6 +159,18 @@ export default function PlinkoBoard({
       max: { x: DESIGN_WIDTH, y: DESIGN_HEIGHT },
     });
 
+    Matter.Events.on(engine, "collisionStart", (event) => {
+      event.pairs.forEach((pair) => {
+        const { bodyA, bodyB } = pair;
+
+        const pinBody = [bodyA, bodyB].find((b) => b.label === "pin");
+        if (pinBody) {
+          const { x, y } = pinBody.position;
+          spawnHighlightEffect(x, y);
+        }
+      });
+    });
+
     renderRef.current = render;
     Matter.Render.run(render);
 
@@ -246,12 +258,44 @@ export default function PlinkoBoard({
             collisionFilter: {
               category: mainCategory,
             },
+            label: "pin",
           }
         );
         Matter.Composite.add(world, pin);
       }
     }
   };
+
+  function spawnHighlightEffect(x: number, y: number) {
+  const effect = Matter.Bodies.circle(x, y, 6, {
+    isStatic: true,
+    render: {
+      fillStyle: "rgba(255, 255, 255, 0.3)",
+    },
+    collisionFilter: {
+      category: 0x0004, // eigene Kategorie
+      mask: 0,          // mit nichts kollidieren
+    },
+    label: "pinEffect",
+  });
+
+  Matter.Composite.add(engineRef.current!.world, effect);
+
+  // Animationsschritte (z. B. größer werdender Effekt)
+  let scaleStep = 1.0;
+  const maxScale = 2.0;
+  const interval = setInterval(() => {
+    scaleStep += 0.1;
+    if (scaleStep >= maxScale) {
+      clearInterval(interval);
+      Matter.Composite.remove(engineRef.current!.world, effect);
+    } else {
+      Matter.Body.scale(effect, 1.1, 1.1);
+      effect.render.fillStyle = `rgba(255, 255, 255, ${1 - (scaleStep - 1)})`; // wird transparenter
+    }
+  }, 50); // alle 50ms
+}
+
 
   const createBall = useCallback(() => {
     if (!engineRef.current) return;
