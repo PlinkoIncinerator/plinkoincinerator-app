@@ -1012,9 +1012,9 @@ export default function PlinkoGameClient({ initialBalance, onRegisterControls }:
               onAnimationComplete={handleAnimationComplete}
               multipliers={currentMultipliers}
               riskMode="medium"
-              showPathInitially={false}
               onAddBall={handleAddBall}
               ballId={ballId}
+              resultBin={latestResult?.gameResult}
             />
           </div>
         </div>
