@@ -969,7 +969,7 @@ export default function PlinkoGameClient({
       {/* Test Mode Indicator */}
       {isTestMode && (
         <div className="bg-purple-700 text-white p-3 rounded-lg text-center font-bold">
-          🧪 TEST MODE ACTIVE - Bets won&apos;t affect your balance 🧪
+          🧪 TEST MODE ACTIVE - Bets won't affect your balance 🧪
         </div>
       )}
 
@@ -1086,7 +1086,7 @@ export default function PlinkoGameClient({
         <div
           className={`flex-1 ${
             isMobileView
-              ? "min-h-[calc(100vh-120px)] mx-0 px-0 w-full mt-0"
+              ? "min-h-[calc(50vh-120px)] mx-0 px-0 w-full mt-0"
               : "h-[600px]"
           } relative z-10`}
         >

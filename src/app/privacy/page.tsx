@@ -46,7 +46,7 @@ export default function PrivacyPolicy() {
             <section>
               <h2 className="text-xl font-bold mb-3 text-pink-400">2. Important Information</h2>
               <p><strong>Not Financial Advice:</strong> PlinkoIncinerator is not a financial advisor, investment advisor, or broker. The information provided on this website is for general informational and entertainment purposes only and does not constitute financial advice.</p>
-              <p className="mt-2"><strong>Age Restriction:</strong> PlinkoIncinerator&apos;s services are only available to individuals who are at least 18 years old or the legal age for gambling in their jurisdiction, whichever is higher. By using our services, you represent and warrant that you meet these age requirements.</p>
+              <p className="mt-2"><strong>Age Restriction:</strong> PlinkoIncinerator's services are only available to individuals who are at least 18 years old or the legal age for gambling in their jurisdiction, whichever is higher. By using our services, you represent and warrant that you meet these age requirements.</p>
               <p className="mt-2"><strong>Gambling Warning:</strong> Gambling involves risk and should be conducted responsibly. You should never gamble with funds that you cannot afford to lose.</p>
             </section>
 

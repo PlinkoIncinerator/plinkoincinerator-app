@@ -154,7 +154,7 @@ export default function TermsAndConditions() {
 
             <section>
               <h2 className="text-xl font-bold mb-3 text-pink-400">12. Indemnification</h2>
-              <p>You agree to defend, indemnify, and hold harmless PlinkoIncinerator, its affiliates, licensors, and service providers, and their respective officers, directors, employees, contractors, agents, licensors, suppliers, successors, and assigns from and against any claims, liabilities, damages, judgments, awards, losses, costs, expenses, or fees (including reasonable attorneys&apos; fees) arising out of or relating to your violation of these Terms or your use of the Service.</p>
+              <p>You agree to defend, indemnify, and hold harmless PlinkoIncinerator, its affiliates, licensors, and service providers, and their respective officers, directors, employees, contractors, agents, licensors, suppliers, successors, and assigns from and against any claims, liabilities, damages, judgments, awards, losses, costs, expenses, or fees (including reasonable attorneys' fees) arising out of or relating to your violation of these Terms or your use of the Service.</p>
             </section>
 
             <section>

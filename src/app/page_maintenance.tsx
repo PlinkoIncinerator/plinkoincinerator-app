@@ -96,7 +96,7 @@ export default function Home() {
     "BURN YOUR DUST, YOLO THE REST!",
     "INCINERATE TRASH, WIN CASH!",
     "TORCH YOUR TOKENS, LAMBO SOON™",
-    "PAPER WALLETS? BURN &apos;EM! 🔥",
+    "PAPER WALLETS? BURN 'EM! 🔥",
     "FROM DUST TO DIAMOND HANDS! 💎",
     "BURN NOW, MOON LATER! 🚀"
   ], []);
@@ -212,7 +212,7 @@ export default function Home() {
           <div className="mb-12 text-center max-w-3xl mx-auto">
             <div className="mb-4 transform -rotate-2">
               <span className="inline-block bg-red-600 text-white text-sm font-bold px-3 py-1 rounded-md shadow-lg">
-                SOLANA&apos;S HOTTEST DAPP
+                SOLANA'S HOTTEST DAPP
               </span>
             </div>
             
@@ -251,7 +251,7 @@ export default function Home() {
             </p>
             
             <p className="text-gray-400 text-xs mb-2">
-              *Results may vary. Probably won&apos;t become a millionaire. Not financial advice. YOLO responsibly.
+              *Results may vary. Probably won't become a millionaire. Not financial advice. YOLO responsibly.
             </p>
             
             <div className="flex justify-center gap-4 mb-10">
@@ -303,10 +303,10 @@ export default function Home() {
               <span className="mr-2">🛠️</span> Maintenance Mode <span className="ml-2">🛠️</span>
             </h1>
             <p className="text-center text-gray-300 mb-4">
-              Sorry, we&apos;re currently performing maintenance on our platform to provide you with a better experience.
+              Sorry, we're currently performing maintenance on our platform to provide you with a better experience.
             </p>
             <p className="text-center text-gray-300 mb-6">
-              We&apos;ll be back online soon! Please check our social channels for updates.
+              We'll be back online soon! Please check our social channels for updates.
             </p>
             <div className="flex justify-center">
               <div className="animate-bounce text-3xl text-yellow-400">⏳</div>
@@ -326,7 +326,7 @@ export default function Home() {
               <div className="max-w-md mx-auto bg-black bg-opacity-50 p-4 rounded-lg border border-gray-700">
                 <h3 className="text-purple-400 font-bold mb-2">While you wait:</h3>
                 <p className="text-gray-300">
-                  Join our community channels for the latest updates and to learn when we&apos;re back online!
+                  Join our community channels for the latest updates and to learn when we're back online!
                 </p>
               </div>
             </div>
@@ -368,15 +368,15 @@ export default function Home() {
             <h2 className="text-3xl font-bold text-center mb-8 bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">Frequently Asked Questions</h2>
             
             <div className="grid gap-3 max-w-3xl mx-auto">
-              <FAQItem question="WTF is a &apos;dust&apos; account?">
-                Empty token accounts in your Solana wallet that take up space on the blockchain. They&apos;re leftovers from airdrops, NFTs, or tokens you&apos;ve sold. They&apos;re useless but occupy rent space.
+              <FAQItem question="WTF is a 'dust' account?">
+                Empty token accounts in your Solana wallet that take up space on the blockchain. They're leftovers from airdrops, NFTs, or tokens you've sold. They're useless but occupy rent space.
               </FAQItem>
               
               <FAQItem question={<>How much <SolanaLogo width={14} height={12} /> do I get?</>}>
                 You get about 0.00203928 <SolanaLogo width={14} height={12} /> per empty token account (after our 2.1% platform fee). When you incinerate tokens, you can choose to either withdraw directly to your wallet or gamble with Plinko for a chance to multiply your earnings.
               </FAQItem>
               
-              <FAQItem question="What is &apos;SOL Recovered&apos;?">
+              <FAQItem question="What is 'SOL Recovered'?">
                 &quot;SOL Recovered&quot; refers to the total amount of SOL that has been reclaimed from closing empty token accounts across all users. When you close empty token accounts, you recover the rent space deposit that was locked in these accounts, which is returned as SOL. This process frees up blockchain space and returns the locked value to users.
               </FAQItem>
               
@@ -393,7 +393,7 @@ export default function Home() {
               </FAQItem>
 
               <FAQItem question="What happens after I burn my empty accounts?">
-                After burning your empty accounts, you&apos;ll receive <SolanaLogo width={14} height={12} /> tokens in proportion to the number of accounts closed. You can then either withdraw these tokens directly to your wallet or use them to play the Plinko game for a chance to multiply your earnings.
+                After burning your empty accounts, you'll receive <SolanaLogo width={14} height={12} /> tokens in proportion to the number of accounts closed. You can then either withdraw these tokens directly to your wallet or use them to play the Plinko game for a chance to multiply your earnings.
               </FAQItem>
 
               <FAQItem question="Is there a limit to how many accounts I can burn?">
@@ -408,7 +408,7 @@ export default function Home() {
                   <li><strong>Staking rewards</strong> for providing liquidity</li>
                   <li><strong>Exclusive access</strong> to new features and games</li>
                 </ul>
-                <p className="mt-2">We&apos;ve implemented a <strong className="text-green-400">buyback mechanism</strong> where a portion of platform fees goes toward purchasing and burning $PLINC tokens. This reduces the circulating supply over time - the more you play, the more tokens get burned!</p>
+                <p className="mt-2">We've implemented a <strong className="text-green-400">buyback mechanism</strong> where a portion of platform fees goes toward purchasing and burning $PLINC tokens. This reduces the circulating supply over time - the more you play, the more tokens get burned!</p>
                 <p className="mt-2 text-yellow-300 font-bold">Contract Address: 49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump</p>
               </FAQItem>
             </div>
@@ -485,7 +485,7 @@ export default function Home() {
                 <p className="font-bold text-gray-400">PlinkoIncinerator: Where Solana Dust Goes to Die and Gains Go to Moon 🚀</p>
               </div>
             </div>
-            <p className="mb-6">This is an experimental beta application. Plinko responsibly. Don&apos;t gamble what you can&apos;t afford to lose.</p>
+            <p className="mb-6">This is an experimental beta application. Plinko responsibly. Don't gamble what you can't afford to lose.</p>
             
             <div className="flex flex-wrap justify-center gap-6 mb-6">
               <SocialIcon href="https://twitter.com/plinkcinerator" icon="🐦" label="Twitter" />

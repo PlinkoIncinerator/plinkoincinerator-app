@@ -55,7 +55,7 @@ export default function FAQSection() {
         
         <div className="grid gap-3 max-w-3xl mx-auto">
           <FAQItem question="WTF is a 'dust' account?">
-            Empty token accounts in your Solana wallet that take up space on the blockchain. They&apos;re leftovers from airdrops, NFTs, or tokens you&apos;ve sold. They&apos;re useless but occupy rent space.
+            Empty token accounts in your Solana wallet that take up space on the blockchain. They're leftovers from airdrops, NFTs, or tokens you've sold. They're useless but occupy rent space.
           </FAQItem>
           
           <FAQItem question={<>How much <SolanaLogo width={14} height={12} /> do I get?</>}>
@@ -79,7 +79,7 @@ export default function FAQSection() {
           </FAQItem>
 
           <FAQItem question="What happens after I burn my empty accounts?">
-            After burning your empty accounts, you&apos;ll receive <SolanaLogo width={14} height={12} /> tokens in proportion to the number of accounts closed. You can then either withdraw these tokens directly to your wallet or use them to play the Plinko game for a chance to multiply your earnings.
+            After burning your empty accounts, you'll receive <SolanaLogo width={14} height={12} /> tokens in proportion to the number of accounts closed. You can then either withdraw these tokens directly to your wallet or use them to play the Plinko game for a chance to multiply your earnings.
           </FAQItem>
 
           <FAQItem question="Is there a limit to how many accounts I can burn?">
@@ -94,7 +94,7 @@ export default function FAQSection() {
               <li><strong>Staking rewards</strong> for providing liquidity</li>
               <li><strong>Exclusive access</strong> to new features and games</li>
             </ul>
-            <p className="mt-2">We&apos;ve implemented a <strong className="text-green-400">buyback mechanism</strong> where a portion of platform fees goes toward purchasing and burning $PLINC tokens. This reduces the circulating supply over time - the more you play, the more tokens get burned!</p>
+            <p className="mt-2">We've implemented a <strong className="text-green-400">buyback mechanism</strong> where a portion of platform fees goes toward purchasing and burning $PLINC tokens. This reduces the circulating supply over time - the more you play, the more tokens get burned!</p>
             <p className="mt-2 text-yellow-300 font-bold">Contract Address: 49Jy3P5J41zkcCgaveKXQfeUU3zNCHCSEEypkJTrpump</p>
           </FAQItem>
         </div>

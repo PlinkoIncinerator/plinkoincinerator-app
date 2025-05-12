@@ -56,7 +56,7 @@ const Footer = () => {
             <p className="font-bold text-gray-400">PlinkoIncinerator: Where Solana Dust Goes to Die and Gains Go to Moon 🚀</p>
           </div>
         </div>
-        <p className="mb-6">This is an experimental beta application. Plinko responsibly. Don&apos;t gamble what you can&apos;t afford to lose.</p>
+        <p className="mb-6">This is an experimental beta application. Plinko responsibly. Don't gamble what you can't afford to lose.</p>
         
         <div className="flex flex-wrap justify-center gap-6 mb-6">
           <SocialIcon 
