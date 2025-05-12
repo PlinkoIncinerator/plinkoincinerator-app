@@ -6,6 +6,7 @@ import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 export const blacklist = [
   "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm", // Example: USDC
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // Example: USDT
+  "So11111111111111111111111111111111111111112", // Example: WSOL
 ];
 
 export interface TokenAccountData {

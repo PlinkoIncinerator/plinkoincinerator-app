@@ -630,7 +630,7 @@ export default function PlinkoGameClient({
 
         const multipliers = plinkoService.getMultipliers(options.riskMode);
         const binIndex = calculateTargetBucket(17);
-        const multiplier = multipliers[binIndex - 1];
+        const multiplier = multipliers[binIndex];
         const winAmount = options.betAmount * multiplier;
 
         const finalBalance = updatedBalance + winAmount;

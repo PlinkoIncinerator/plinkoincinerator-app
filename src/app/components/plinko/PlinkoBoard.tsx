@@ -22,72 +22,72 @@ function getRandomStartPositionForBin(
   binNumber: number
 ): { y: number; x: number } | null {
   const startPositions: Record<number, { y: number; x: number }[]> = {
-    1: [
+    0: [
       { y: 0, x: 462 },
       { y: 0, x: 459 },
     ],
-    2: [{ y: 0, x: 402 }],
-    3: [
+    1: [{ y: 0, x: 402 }],
+    2: [
       { y: 0, x: 497 },
       { y: 0, x: 435 },
     ],
-    4: [
+    3: [
       { y: 0, x: 488 },
       { y: 0, x: 526 },
       { y: 0, x: 580 },
     ],
-    5: [
+    4: [
       { y: 0, x: 490 },
       { y: 0, x: 496 },
       { y: 0, x: 525 },
       { y: 0, x: 549 },
       { y: 0, x: 555 },
     ],
-    6: [
+    5: [
       { y: 0, x: 494 },
       { y: 0, x: 498 },
       { y: 0, x: 519 },
       { y: 0, x: 576 },
       { y: 0, x: 608 },
     ],
-    7: [
+    6: [
       { y: 0, x: 491 },
       { y: 0, x: 499 },
       { y: 0, x: 517 },
       { y: 0, x: 518 },
       { y: 0, x: 546 },
     ],
-    8: [
+    7: [
       { y: 0, x: 605 },
       { y: 0, x: 609 },
     ],
-    9: [
+    8: [
       { y: 0, x: 500 },
       { y: 0, x: 505 },
       { y: 0, x: 534 },
       { y: 0, x: 578 },
       { y: 0, x: 619 },
     ],
-    10: [
+    9: [
       { y: 0, x: 506 },
       { y: 0, x: 558 },
       { y: 0, x: 587 },
       { y: 0, x: 590 },
     ],
-    11: [
+    10: [
       { y: 0, x: 529 },
       { y: 0, x: 583 },
       { y: 0, x: 594 },
       { y: 0, x: 613 },
     ],
-    12: [
+    11: [
       { y: 0, x: 503 },
       { y: 0, x: 533 },
       { y: 0, x: 560 },
       { y: 0, x: 565 },
       { y: 0, x: 592 },
     ],
-    13: [
+      13: [
       { y: 0, x: 504 },
       { y: 0, x: 522 },
       { y: 0, x: 527 },
@@ -178,7 +178,7 @@ export default function PlinkoBoard({
             const targetBin = ballBody.plugin.targetBin;
             console.log("Ball landed, intended bin:", targetBin);
 
-            setHitBinIndex(targetBin !== null ? targetBin - 1 : 0);
+            setHitBinIndex(targetBin !== null ? targetBin : 0);
             setTimeout(() => setHitBinIndex(null), 300);
 
             if (onAnimationComplete) {
