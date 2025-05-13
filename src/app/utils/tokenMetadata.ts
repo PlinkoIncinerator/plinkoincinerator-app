@@ -114,6 +114,7 @@ async function checkJupiterSwapAvailability(mintAddress: string): Promise<boolea
       return true;
     }
 
+    
     if (data.errorCode === "COULD_NOT_FIND_ANY_ROUTE") {
       console.log(`Token ${mintAddress} encountered COULD_NOT_FIND_ANY_ROUTE error, assuming swap routes exist`);
       return true;
