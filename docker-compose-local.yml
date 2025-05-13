@@ -23,15 +23,12 @@ services:
   #     dockerfile: Dockerfile
   #     tags:
   #       - plinkoincinerator-app-dev:latest
-  #   volumes:
-  #     - ./src:/app/
-  #     - ./src/server:/app/server
   #   container_name: plinkoincinerator-app
   #   restart: always
   #   networks:
   #     - plinkoincinerator-network
   #   ports:
-  #     - "3001:3000" 
+  #     - "3001:80" 
   #   expose:
   #     - 3001
   #   depends_on:

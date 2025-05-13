@@ -12,6 +12,7 @@
     "migrate": "ts-node src/migrate.ts"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.16.0",
     "@jup-ag/api": "^6.0.41",
     "@solana/spl-token": "^0.4.0",
     "@solana/web3.js": "^1.78.5",

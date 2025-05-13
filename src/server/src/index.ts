@@ -42,6 +42,10 @@ import {
 import pool from './database/db';
 import buybackService from './utils/buybackService';
 import { runMigrations } from './database/migrations';
+import { Storage } from '@google-cloud/storage';
+import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
+import fs from 'fs';
 
 const app = express();
 const server = http.createServer(app);
@@ -96,7 +100,9 @@ const userStates = new Map<string, UserState>();
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+// Increase JSON body size limit to 20MB to accommodate larger image data
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ limit: '20mb', extended: true }));
 
 // API routes
 app.get('/api/health', (req: any, res: any) => {
@@ -625,6 +631,208 @@ app.get('/api/plinko/buybacks', async (req: any, res: any) => {
     return res.status(500).json({
       status: 'error',
       message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+});
+
+// Initialize GCP Storage if environment variables are present
+let storageClient: Storage | null = null;
+let bucketName = process.env.GCP_BUCKET_NAME || 'plinko-incinerator-shares';
+
+try {
+  // Check if GCP credentials are available
+  if (process.env.GCP_PROJECT_ID && process.env.GCP_CLIENT_EMAIL && process.env.GCP_PRIVATE_KEY) {
+    storageClient = new Storage({
+      projectId: process.env.GCP_PROJECT_ID,
+      credentials: {
+        client_email: process.env.GCP_CLIENT_EMAIL,
+        private_key: process.env.GCP_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      }
+    });
+    console.log('Google Cloud Storage client initialized');
+    
+    // Check if bucket exists and create it if it doesn't
+    (async () => {
+      try {
+        if (storageClient) {
+          const [bucketExists] = await storageClient.bucket(bucketName).exists();
+          if (!bucketExists) {
+            console.log(`Bucket ${bucketName} does not exist. Creating it now...`);
+            await storageClient.createBucket(bucketName, {
+              location: 'us-central1',
+              storageClass: 'STANDARD'
+            });
+            // Make bucket public
+            await storageClient.bucket(bucketName).makePublic();
+            console.log(`Bucket ${bucketName} created successfully and made public`);
+          } else {
+            console.log(`Bucket ${bucketName} already exists`);
+          }
+        }
+      } catch (bucketError) {
+        console.error('Error checking/creating bucket:', bucketError);
+      }
+    })();
+  } else if (process.env.NODE_ENV === 'production') {
+    console.warn('GCP credentials missing, but in production. Image uploads may not work correctly');
+  } else {
+    console.log('No GCP credentials found, will use local file storage for development');
+  }
+} catch (error) {
+  console.error('Error initializing GCP Storage client:', error);
+  storageClient = null;
+}
+
+// Ensure local temp directory exists for development
+const LOCAL_TEMP_DIR = path.join(__dirname, '..', 'temp');
+if (!storageClient && !fs.existsSync(LOCAL_TEMP_DIR)) {
+  try {
+    fs.mkdirSync(LOCAL_TEMP_DIR, { recursive: true });
+    console.log(`Created local temp directory: ${LOCAL_TEMP_DIR}`);
+  } catch (err) {
+    console.error('Failed to create local temp directory:', err);
+  }
+}
+
+// New endpoint: Store share image
+app.post('/api/store-share-image', async (req: any, res: any) => {
+  const { imageData, walletAddress, recoveredSol } = req.body;
+  
+  if (!imageData || !walletAddress) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Missing image data or wallet address'
+    });
+  }
+  
+  try {
+    // Generate unique filename
+    const uniqueId = uuidv4();
+    const truncatedWallet = walletAddress.slice(0, 8);
+    const timestamp = Date.now();
+    const filename = `share_${truncatedWallet}_${timestamp}_${uniqueId}.png`;
+    
+    let imageUrl = '';
+    
+    // Remove the data:image/png;base64, prefix
+    const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    
+    // If GCP storage is available, upload to bucket
+    if (storageClient) {
+      try {
+        // Check if the bucket exists, create if needed
+        const [bucketExists] = await storageClient.bucket(bucketName).exists();
+        
+        if (!bucketExists) {
+          console.log(`Bucket ${bucketName} not found during image upload, creating...`);
+          try {
+            await storageClient.createBucket(bucketName, {
+              location: 'us-central1',
+              storageClass: 'STANDARD'
+            });
+            console.log(`Bucket ${bucketName} created successfully`);
+            
+            // Make it public
+            await storageClient.bucket(bucketName).makePublic();
+            console.log(`Bucket ${bucketName} made public`);
+          } catch (createError: any) {
+            console.error(`Failed to create bucket: ${createError}`);
+            throw new Error(`Bucket creation failed: ${createError.message}`);
+          }
+        }
+        
+        // Upload the file
+        const bucket = storageClient.bucket(bucketName);
+        const file = bucket.file(`shares/${filename}`);
+        
+        await file.save(buffer, {
+          metadata: {
+            contentType: 'image/png',
+            metadata: {
+              walletAddress: walletAddress,
+              recoveredSol: recoveredSol?.toString() || '0',
+              timestamp: new Date().toISOString()
+            }
+          }
+        });
+        
+        // Make file public
+        await file.makePublic();
+        
+        // Get public URL
+        imageUrl = `https://storage.googleapis.com/${bucketName}/shares/${filename}`;
+        console.log(`Uploaded share image to GCP: ${imageUrl}`);
+      } catch (gcpError: any) {
+        console.error(`GCP upload error: ${gcpError.message}`);
+        
+        // Fallback to local storage if GCP fails
+        console.log('Falling back to local storage after GCP failure');
+        const filePath = path.join(LOCAL_TEMP_DIR, filename);
+        fs.writeFileSync(filePath, buffer);
+        
+        // For local development, we'll return a URL to the public API endpoint
+        imageUrl = `${process.env.PUBLIC_API_URL || 'http://localhost:3333'}/api/share-images/${filename}`;
+        console.log(`Stored share image locally as fallback: ${filePath}`);
+      }
+    } else {
+      // Local file storage for development
+      const filePath = path.join(LOCAL_TEMP_DIR, filename);
+      fs.writeFileSync(filePath, buffer);
+      
+      // For local development, we'll return a URL to the public API endpoint
+      imageUrl = `${process.env.PUBLIC_API_URL || 'http://localhost:3333'}/api/share-images/${filename}`;
+      console.log(`Stored share image locally: ${filePath}`);
+    }
+    
+    // Store image URL in database if needed
+    try {
+      // Add to your database table if needed
+      // We could track shared images for analytics
+      // This is just a placeholder
+      pool.query(
+        'INSERT INTO shared_images (wallet_address, image_url, recovered_sol, created_at) VALUES ($1, $2, $3, NOW())',
+        [walletAddress, imageUrl, recoveredSol || 0]
+      ).catch(err => console.error('Error logging shared image to database:', err));
+    } catch (dbError) {
+      console.error('Error logging to database:', dbError);
+      // Continue even if database logging fails
+    }
+    
+    return res.status(200).json({
+      status: 'success',
+      imageUrl
+    });
+  } catch (error) {
+    console.error('Error storing share image:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+});
+
+// Endpoint to serve locally stored images in development
+app.get('/api/share-images/:filename', (req: any, res: any) => {
+  const { filename } = req.params;
+  
+  // Security check - only allow PNG files with the expected naming pattern
+  if (!filename.match(/^share_[a-zA-Z0-9]{8}_\d+_[a-f0-9-]+\.png$/)) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Invalid image filename pattern'
+    });
+  }
+  
+  const filePath = path.join(LOCAL_TEMP_DIR, filename);
+  
+  if (fs.existsSync(filePath)) {
+    res.set('Content-Type', 'image/png');
+    return res.sendFile(filePath);
+  } else {
+    return res.status(404).json({
+      status: 'error',
+      message: 'Image not found'
     });
   }
 });

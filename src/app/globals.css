@@ -28,6 +28,26 @@ body {
   padding: 0;
 }
 
+/* Float Up Animation for Share Modal */
+@keyframes float-up {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 0.5;
+    transform: translateY(-50vh) rotate(20deg);
+  }
+  100% {
+    transform: translateY(-100vh) rotate(40deg);
+    opacity: 0;
+  }
+}
+
+.animate-float-up {
+  animation: float-up var(--duration, 10s) ease-out forwards;
+}
+
 /* Retro Button Styles */
 .retro-button {
   background: linear-gradient(to bottom, #9333ea, #7e22ce);

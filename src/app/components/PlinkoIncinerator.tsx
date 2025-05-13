@@ -14,6 +14,7 @@ import IncineratorActions from './IncineratorActions';
 import TokenList from './TokenList';
 import AmountSlider from './AmountSlider';
 import { getPlinkoService } from "../utils/plinkoService";
+import { useShareModal } from '../context/ShareModalContext';
 
 // Create a reusable component for the Solana logo
 export const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
@@ -66,6 +67,7 @@ type GameState = 'idle' | 'scanning' | 'ready' | 'playing' | 'finished';
 
 export default function PlinkoIncinerator() {
   const { primaryWallet } = useDynamicContext();
+  const { openShareModal } = useShareModal();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
   const [tokenAccounts, setTokenAccounts] = useState<FormattedTokenAccount[]>([]);
@@ -363,6 +365,18 @@ export default function PlinkoIncinerator() {
       const frozenTokens = updatedAccounts.filter(account => account.isFrozen);
       if (frozenTokens.length > 0) {
         addDebugMessage(`Found ${frozenTokens.length} frozen token accounts that cannot be incinerated`);
+        setLoadingMessage(`Found ${updatedAccounts.length} tokens (${frozenTokens.length} frozen)`);
+        setTimeout(() => {
+          if (frozenTokens.length > 0 && eligibleTokens.length === 0) {
+            setLoadingMessage(`You have ${frozenTokens.length} tokens that are locked by their creators and can't be burned.`);
+            setTimeout(() => setLoadingMessage(''), 4000);
+          } else if (frozenTokens.length > 0) {
+            setLoadingMessage(`You have ${eligibleTokens.length} eligible tokens and ${frozenTokens.length} tokens that are locked by their creators.`);
+            setTimeout(() => setLoadingMessage(''), 4000);
+          } else {
+            setLoadingMessage('');
+          }
+        }, 2000);
         frozenTokens.forEach(token => {
           addDebugMessage(`Frozen token: ${token.name} (${token.mint.slice(0, 6)}...${token.mint.slice(-4)})`);
         });
@@ -713,6 +727,9 @@ export default function PlinkoIncinerator() {
           }
         }
         
+        // Open the share modal
+        openShareModal(potentialSol, primaryWallet.address, accountsToProcess.length, true);
+        
         // Track successful incineration
         trackPlinkoEvent(
           'withdrawal_success',
@@ -761,6 +778,9 @@ export default function PlinkoIncinerator() {
           
         setLoadingMessage(remainingMessage);
         setShowGameOptions(true);
+        
+        // Open the share modal
+        openShareModal(potentialSol, primaryWallet.address, accountsToProcess.length, false);
         
         // Track successful incineration
         trackPlinkoEvent(
@@ -861,8 +881,11 @@ export default function PlinkoIncinerator() {
   
   // Calculate potential SOL from burning tokens
   const totalPotentialValue = selectedTokens.reduce((total, token) => {
-    // Convert token USD value to SOL and add account closure value
-    const tokenValueInSol = token.valueUsd && solToUsd ? token.valueUsd / solToUsd : 0;
+    // Only include token value if it has swap routes
+    const tokenValueInSol = token.hasSwapRoutes && token.valueUsd && solToUsd 
+      ? token.valueUsd / solToUsd 
+      : 0;
+    
     const accountClosureValue = 0.00203928;
     return total + tokenValueInSol + accountClosureValue;
   }, 0);
@@ -1047,7 +1070,14 @@ export default function PlinkoIncinerator() {
             <div className="flex flex-col md:flex-row justify-between items-center gap-4 p-4 bg-gray-900 bg-opacity-60 rounded-lg">
               <div>
                 <p className="text-sm text-gray-300 mb-1">Selected Tokens:</p>
-                <p className="text-xl font-bold text-accent-green">{selectedTokens.length} of {eligibleTokens.length} eligible</p>
+                <p className="text-xl font-bold text-accent-green">
+                  {selectedTokens.length} of {eligibleTokens.length} eligible
+                  {frozenTokens.length > 0 && (
+                    <span className="text-red-400 text-sm ml-2">
+                      ({frozenTokens.length} locked by creators)
+                    </span>
+                  )}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-gray-300 mb-1">Potential Value:</p>
@@ -1093,14 +1123,14 @@ export default function PlinkoIncinerator() {
               />
             )}
             
-            {eligibleTokens.length > 0 && (
+            {(eligibleTokens.length > 0 || frozenTokens.length > 0) && (
               <div className="mt-4">
                 <div className="flex justify-between items-center">
                   <button 
                     onClick={() => setShowTokenList(!showTokenList)}
                     className="text-accent-blue text-sm underline hover:text-accent-purple"
                   >
-                    {showTokenList ? "Hide Token List" : "Show Token List"}
+                    {showTokenList ? "Hide Token List" : `Show Token List ${frozenTokens.length > 0 ? `(${eligibleTokens.length} eligible, ${frozenTokens.length} locked)` : ''}`}
                   </button>
                 </div>
                 {showTokenList && (
