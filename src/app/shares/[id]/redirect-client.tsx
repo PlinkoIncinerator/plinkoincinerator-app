@@ -37,7 +37,7 @@ export default function RedirectClient({ shareInfo }: RedirectClientProps) {
       if (showModal) {
         handleRedirect();
       }
-    }, 10000); // 10 seconds delay for automatic redirect
+    }, 1000); // 10 seconds delay for automatic redirect
 
     return () => clearTimeout(timeout);
   }, [showModal]);
