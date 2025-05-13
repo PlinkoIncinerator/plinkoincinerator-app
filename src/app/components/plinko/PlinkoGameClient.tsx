@@ -781,7 +781,9 @@ export default function PlinkoGameClient({
       plinkoService,
       throttledPlay,
       handleManualReconnect,
-      testBalance
+      testBalance,
+      currentMultipliers,
+      setCurrentPage,
     ]
   );
 

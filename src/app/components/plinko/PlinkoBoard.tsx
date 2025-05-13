@@ -136,109 +136,77 @@ export default function PlinkoBoard({
     if (runnerRef.current) Matter.Runner.stop(runnerRef.current);
   };
 
-  const createPhysicsWorld = useCallback(() => {
-    if (!containerRef.current || !canvasRef.current) return;
-    
-    cleanupPhysicsWorld();
-    
-    // Measure container dimensions
-    const containerWidth = containerRef.current.clientWidth;
-    const containerHeight = containerRef.current.clientHeight;
-    
-    // Set canvas dimensions
-    canvasRef.current.width = containerWidth;
-    canvasRef.current.height = containerHeight;
-    
-    // Create engine, world, and renderer
-    const engine = Matter.Engine.create({
-      positionIterations: 10,
-      velocityIterations: 8,
-    });
-    
+  const createPhysicsWorld = () => {
+    const engine = Matter.Engine.create();
+    engine.gravity.y = 0.6;
     engineRef.current = engine;
-    
-    const renderer = Matter.Render.create({
-      element: containerRef.current,
-      canvas: canvasRef.current,
-      engine: engine,
+
+    const render = Matter.Render.create({
+      canvas: canvasRef.current!,
+      engine,
       options: {
-        width: containerWidth,
-        height: containerHeight,
+        width: DESIGN_WIDTH,
+        height: DESIGN_HEIGHT,
         wireframes: false,
-        background: "#111827",
+        background: "transparent",
       },
     });
-    
-    renderRef.current = renderer;
-    
-    Matter.Runner.run(engine);
-    Matter.Render.run(renderer);
-    
-    // Set up collision event
+
+    const mainCategory = 0xffff;
+
+    Matter.Render.lookAt(render, {
+      min: { x: 0, y: 0 },
+      max: { x: DESIGN_WIDTH, y: DESIGN_HEIGHT },
+    });
+
     Matter.Events.on(engine, "collisionStart", (event) => {
       event.pairs.forEach((pair) => {
-        // Check if a ball hit a pin
-        if (
-          (pair.bodyA.label === "pin" && pair.bodyB.label === "ball") ||
-          (pair.bodyA.label === "ball" && pair.bodyB.label === "pin")
-        ) {
-          const pin =
-            pair.bodyA.label === "pin" ? pair.bodyA : pair.bodyB;
-          spawnHighlightEffect(pin.position.x, pin.position.y);
+        const { bodyA, bodyB } = pair;
+
+        const pinBody = [bodyA, bodyB].find((b) => b.label === "pin");
+        const binBody = [bodyA, bodyB].find((b) => b.label === "floor");
+
+        if (pinBody) {
+          const { x, y } = pinBody.position;
+          spawnHighlightEffect(x, y);
         }
-        
-        // Check if a ball hit the floor to track which bin it landed in
-        if (
-          (pair.bodyA.label === "floor" && pair.bodyB.label === "ball") ||
-          (pair.bodyA.label === "ball" && pair.bodyB.label === "floor")
-        ) {
-          const ball =
-            pair.bodyA.label === "ball" ? pair.bodyA : pair.bodyB;
-          
-          // Calculate which bin it landed in
-          const binWidth = DESIGN_WIDTH / multipliers.length;
-          const binIndex = Math.min(
-            multipliers.length - 1,
-            Math.max(0, Math.floor(ball.position.x / binWidth))
-          );
-          
-          // Only trigger if this was our target ball and bin
-          if (ball.plugin && ball.plugin.targetBin === resultBinRef.current) {
-            console.log("Ball hit floor in bin index:", binIndex);
-            setHitBinIndex(binIndex);
-            
-            // Add a timeout to allow animation to complete before removing the ball
-            setTimeout(() => {
-              if (onAnimationComplete) {
-                onAnimationComplete();
-              }
-              Matter.Composite.remove(engine.world, ball);
-            }, 500);
+
+        if (binBody) {
+          const ballBody = [bodyA, bodyB].find((b) => b.label === "ball");
+
+          if (ballBody && ballBody.plugin?.targetBin) {
+            const targetBin = ballBody.plugin.targetBin;
+            console.log("Ball landed, intended bin:", targetBin);
+
+            setHitBinIndex(targetBin !== null ? targetBin : 0);
+            setTimeout(() => setHitBinIndex(null), 300);
+
+            if (onAnimationComplete) {
+              onAnimationComplete();
+            }
           }
         }
       });
     });
-    
-    // Add walls and objects
-    const mainCategory = 0x0001;
+
+    renderRef.current = render;
+    Matter.Render.run(render);
+
+    const runner = Matter.Runner.create();
+    Matter.Runner.run(runner, engine);
+
+    runnerRef.current = runner;
     const world = engine.world;
-    
-    // Scale ratio
+
+    // Walls (virtual space)
     Matter.Composite.add(world, [
-      // Boundaries (left and right walls, floor)
-      Matter.Bodies.rectangle(
-        0,
-        DESIGN_HEIGHT / 2,
-        10,
-        DESIGN_HEIGHT,
-        {
-          isStatic: true,
-          render: { fillStyle: "#1f2937" },
-          collisionFilter: {
-            category: mainCategory,
-          },
-        }
-      ),
+      Matter.Bodies.rectangle(0, DESIGN_HEIGHT / 2, 10, DESIGN_HEIGHT, {
+        isStatic: true,
+        render: { fillStyle: "#1f2937" },
+        collisionFilter: {
+          category: mainCategory,
+        },
+      }),
       Matter.Bodies.rectangle(
         DESIGN_WIDTH,
         DESIGN_HEIGHT / 2,
@@ -315,7 +283,7 @@ export default function PlinkoBoard({
         Matter.Composite.add(world, pin);
       }
     }
-  }, [rows, multipliers, onAnimationComplete]);
+  };
 
   function spawnHighlightEffect(x: number, y: number) {
     const effect = Matter.Bodies.circle(x, y, 6, {
@@ -394,7 +362,7 @@ export default function PlinkoBoard({
       cleanupPhysicsWorld();
       window.removeEventListener("resize", resizeHandler);
     };
-  }, [createPhysicsWorld]);
+  }, []);
 
   useEffect(() => {
     if (isPlaying && resultBin) {
