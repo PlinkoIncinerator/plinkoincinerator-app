@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import { SolanaLogo } from './PlinkoIncinerator';
 import { toPng } from 'html-to-image';
@@ -29,62 +29,6 @@ export default function ShareModal({
   const cardRef = useRef<HTMLDivElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   
-  // Generate the image when the modal opens
-  useEffect(() => {
-    if (isOpen && cardRef.current) {
-      setIsLoading(true);
-      setUploadError(null);
-      
-      // Small delay to ensure the DOM is fully rendered
-      setTimeout(() => {
-        if (cardRef.current) {
-          toPng(cardRef.current, { 
-            quality: 0.6, // Further reduce quality to decrease file size
-            pixelRatio: 1.5, // Lower pixel ratio to reduce size
-            cacheBust: true
-          })
-            .then((dataUrl) => {
-              setImageUrl(dataUrl);
-              
-              // Store the image on the server immediately
-              if (dataUrl) {
-                // Request data in smaller chunks to avoid payload size issues
-                const smallerImage = compressImage(dataUrl);
-                storeImageOnServer(smallerImage);
-              } else {
-                setIsLoading(false);
-              }
-            })
-            .catch((error) => {
-              console.error('Error generating image:', error);
-              setIsLoading(false);
-              setUploadError('Failed to generate image');
-            });
-        }
-      }, 200);
-    }
-  }, [isOpen, walletAddress, recoveredSol, tokensBurned]);
-  
-  // Generate shareable URL when we have the stored image URL
-  useEffect(() => {
-    if (storedImageUrl) {
-      const baseUrl = window.location.origin;
-      // Create a unique ID from the image URL or timestamp
-      const imageId = storedImageUrl.split('/').pop()?.split('.')[0] || Date.now().toString();
-      
-      // Generate a cleaner, shorter share URL with minimal parameters
-      // We'll store just the essential information and derive the rest on the share page
-      const url = new URL(`${baseUrl}/shares/${imageId}`);
-      url.searchParams.set('sol', recoveredSol.toFixed(6));
-      url.searchParams.set('n', tokensBurned.toString());
-      
-      // Don't include the wallet address in the URL unless necessary
-      // Don't include the full image URL - we'll construct it on the share page
-      
-      setShareUrl(url.toString());
-    }
-  }, [storedImageUrl, recoveredSol, walletAddress, tokensBurned]);
-  
   // Function to compress image by reducing quality
   const compressImage = (dataUrl: string): string => {
     try {
@@ -97,8 +41,8 @@ export default function ShareModal({
     }
   };
   
-  // Function to store image on server
-  const storeImageOnServer = (imageData: string) => {
+  // Function to store image on server - memoized with useCallback
+  const storeImageOnServer = useCallback((imageData: string) => {
     const apiEndpoint = `${process.env.NEXT_PUBLIC_API_URL || ''}/api/store-share-image`;
     
     // Define a function to make the API call that we can retry
@@ -146,7 +90,63 @@ export default function ShareModal({
     
     // Start the first attempt
     attemptUpload();
-  };
+  }, [walletAddress, recoveredSol]); // Add dependencies for the callback
+
+  // Generate the image when the modal opens
+  useEffect(() => {
+    if (isOpen && cardRef.current) {
+      setIsLoading(true);
+      setUploadError(null);
+      
+      // Small delay to ensure the DOM is fully rendered
+      setTimeout(() => {
+        if (cardRef.current) {
+          toPng(cardRef.current, { 
+            quality: 0.6, // Further reduce quality to decrease file size
+            pixelRatio: 1.5, // Lower pixel ratio to reduce size
+            cacheBust: true
+          })
+            .then((dataUrl) => {
+              setImageUrl(dataUrl);
+              
+              // Store the image on the server immediately
+              if (dataUrl) {
+                // Request data in smaller chunks to avoid payload size issues
+                const smallerImage = compressImage(dataUrl);
+                storeImageOnServer(smallerImage);
+              } else {
+                setIsLoading(false);
+              }
+            })
+            .catch((error) => {
+              console.error('Error generating image:', error);
+              setIsLoading(false);
+              setUploadError('Failed to generate image');
+            });
+        }
+      }, 200);
+    }
+  }, [isOpen, walletAddress, recoveredSol, tokensBurned, storeImageOnServer]);
+  
+  // Generate shareable URL when we have the stored image URL
+  useEffect(() => {
+    if (storedImageUrl) {
+      const baseUrl = window.location.origin;
+      // Create a unique ID from the image URL or timestamp
+      const imageId = storedImageUrl.split('/').pop()?.split('.')[0] || Date.now().toString();
+      
+      // Generate a cleaner, shorter share URL with minimal parameters
+      // We'll store just the essential information and derive the rest on the share page
+      const url = new URL(`${baseUrl}/shares/${imageId}`);
+      url.searchParams.set('sol', recoveredSol.toFixed(6));
+      url.searchParams.set('n', tokensBurned.toString());
+      
+      // Don't include the wallet address in the URL unless necessary
+      // Don't include the full image URL - we'll construct it on the share page
+      
+      setShareUrl(url.toString());
+    }
+  }, [storedImageUrl, recoveredSol, walletAddress, tokensBurned]);
   
   // Reset state when closing
   useEffect(() => {

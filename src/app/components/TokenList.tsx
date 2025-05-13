@@ -98,7 +98,7 @@ export default function TokenList({
   const displayProcessedTokens = filteredProcessedTokens.filter(token => !token.isFrozen);
   
   // Display tokens based on current active tab
-  let displayTokens = activeTab === 'eligible' 
+  const displayTokens = activeTab === 'eligible' 
     ? [...displayEligibleTokens, ...displayProcessedTokens]
     : filteredFrozenTokens;
 

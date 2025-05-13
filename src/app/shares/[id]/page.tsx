@@ -1,13 +1,13 @@
-import { Metadata } from 'next';
+import { Metadata, ResolvingMetadata } from 'next';
 import Image from 'next/image';
 import RedirectClient from './redirect-client';
 
 // Interface for the route parameters
+ 
 type Props = {
-  params: { id: string };
-  searchParams: { [key: string]: string | string[] | undefined };
-};
-
+    params: Promise<{ id: string }>
+    searchParams: Promise<{ [key: string]: string | string[] | undefined }>
+}
 // Function to calculate the exact value based on token count and any token value
 function calculateEstimatedValue(tokenCount: number, tokenValueParam?: string): string {
   // Important values from PlinkoIncinerator.tsx:
@@ -37,21 +37,25 @@ function calculateEstimatedValue(tokenCount: number, tokenValueParam?: string): 
 }
 
 // Generate dynamic metadata for the page
-export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
-  // Get parameters from URL with simpler names
-  const id = params.id;
+export async function generateMetadata(
+    { params, searchParams }: Props,
+    parent: ResolvingMetadata
+  ): Promise<Metadata> {
+
+  const { id } = await params;
+  const { n, v, sol } = await searchParams;
   
   // Get the token count and calculate the recovered SOL if not provided
-  const tokensBurned = typeof searchParams.n === 'string' ? parseInt(searchParams.n) : 0;
+  const tokensBurned = typeof n === 'string' ? parseInt(n) : 0;
   
   // Check if there's a token value parameter (for tokens with value)
-  const tokenValue = searchParams.v as string | undefined;
+  const tokenValue = v as string | undefined;
   
   // Use the provided SOL value if available, otherwise calculate it
-  let recoveredSol = typeof searchParams.sol === 'string' ? searchParams.sol : '0';
+  let recoveredSol = typeof sol === 'string' ? sol : '0';
   
   // If recoveredSol is 0 or not provided but we have tokens, calculate it
-  if ((recoveredSol === '0' || !searchParams.sol) && tokensBurned > 0) {
+  if ((recoveredSol === '0' || !sol) && tokensBurned > 0) {
     recoveredSol = calculateEstimatedValue(tokensBurned, tokenValue);
   }
   
@@ -77,18 +81,26 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
 }
 
 // This is a server component
-export default function SharePage({ params, searchParams }: Props) {
+export default async function SharePage({ params, searchParams }: Props) {
+  // Await the params before accessing the id
+  const { id } = await params;
+
+  console.log("params", params)
+  console.log("searchParams", searchParams)
+
+  const { n, v, sol } = await searchParams;
+  
   // Get the token count and calculate the recovered SOL if not provided
-  const tokenCount = typeof searchParams.n === 'string' ? parseInt(searchParams.n) : 0;
+  const tokenCount = typeof n === 'string' ? parseInt(n) : 0;
   
   // Check if there's a token value parameter (for tokens with value)
-  const tokenValue = searchParams.v as string | undefined;
+  const tokenValue = v as string | undefined;
   
   // Use the provided SOL value if available, otherwise calculate it
-  let recoveredSol = typeof searchParams.sol === 'string' ? searchParams.sol : '0';
+  let recoveredSol = typeof sol === 'string' ? sol : '0';
   
   // If recoveredSol is 0 or not provided but we have tokens, calculate it
-  if ((recoveredSol === '0' || !searchParams.sol) && tokenCount > 0) {
+  if ((recoveredSol === '0' || !sol) && tokenCount > 0) {
     recoveredSol = calculateEstimatedValue(tokenCount, tokenValue);
   }
   

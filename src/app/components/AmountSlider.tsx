@@ -65,7 +65,7 @@ export default function AmountSlider({ onChange, initialAmount = 2.5 }: AmountSl
     };
 
     fetchSolPrice();
-  }, []);
+  }, [selectedUsdValue]);
 
   // Trigger onChange on initial render
   useEffect(() => {

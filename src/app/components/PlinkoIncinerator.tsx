@@ -366,12 +366,16 @@ export default function PlinkoIncinerator() {
       if (frozenTokens.length > 0) {
         addDebugMessage(`Found ${frozenTokens.length} frozen token accounts that cannot be incinerated`);
         setLoadingMessage(`Found ${updatedAccounts.length} tokens (${frozenTokens.length} frozen)`);
+        
+        // Get the current eligible tokens count for the message
+        const currentEligibleTokensCount = updatedAccounts.filter(account => account.isEligible).length;
+        
         setTimeout(() => {
-          if (frozenTokens.length > 0 && eligibleTokens.length === 0) {
+          if (frozenTokens.length > 0 && currentEligibleTokensCount === 0) {
             setLoadingMessage(`You have ${frozenTokens.length} tokens that are locked by their creators and can't be burned.`);
             setTimeout(() => setLoadingMessage(''), 4000);
           } else if (frozenTokens.length > 0) {
-            setLoadingMessage(`You have ${eligibleTokens.length} eligible tokens and ${frozenTokens.length} tokens that are locked by their creators.`);
+            setLoadingMessage(`You have ${currentEligibleTokensCount} eligible tokens and ${frozenTokens.length} tokens that are locked by their creators.`);
             setTimeout(() => setLoadingMessage(''), 4000);
           } else {
             setLoadingMessage('');
@@ -413,7 +417,7 @@ export default function PlinkoIncinerator() {
       // Reset the flag when done
       isRefreshingRef.current = false;
     }
-  }, [primaryWallet, solToUsd, feePercentage]);
+  }, [primaryWallet, feePercentage]);
 
   // Reset states when wallet changes
   useEffect(() => {
