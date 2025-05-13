@@ -98,6 +98,7 @@ const PlinkoControls = forwardRef<PlinkoControlsRef, PlinkoControlsProps>(({
             pendingWithdrawals: 0
           };
           
+          
           return {
             ...prev,
             currentBalance: newBalance
