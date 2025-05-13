@@ -107,6 +107,18 @@ async function checkJupiterSwapAvailability(mintAddress: string): Promise<boolea
     const data = await response.json();
     console.log("Data:", data);
     
+    // Special case for the "CANNOT_COMPUTE_OTHER_AMOUNT_THRESHOLD" error
+    // This error suggests the token has routes but Jupiter can't compute the threshold
+    if (data.errorCode === "CANNOT_COMPUTE_OTHER_AMOUNT_THRESHOLD") {
+      console.log(`Token ${mintAddress} encountered CANNOT_COMPUTE_OTHER_AMOUNT_THRESHOLD error, assuming swap routes exist`);
+      return true;
+    }
+
+    if (data.errorCode === "COULD_NOT_FIND_ANY_ROUTE") {
+      console.log(`Token ${mintAddress} encountered COULD_NOT_FIND_ANY_ROUTE error, assuming swap routes exist`);
+      return true;
+    }
+    
     // If Jupiter can find a route, verify there's enough liquidity
     if (response.ok && !data.errorCode && !data.error) {
       console.log(`Token ${mintAddress} has swap routes available`);
@@ -361,6 +373,7 @@ export async function getTokenMetadata(mintAddress: string, walletPublicKey?: st
       if (!jupiterTokenInfo.isFrozen) {
         // Check if token has swap routes available via Jupiter
         const hasSwapRoutes = await checkJupiterSwapAvailability(mintAddress);
+        console.log(`Token ${mintAddress} has swap routes: ${hasSwapRoutes}`);
         jupiterTokenInfo.hasSwapRoutes = hasSwapRoutes;
       }
       
