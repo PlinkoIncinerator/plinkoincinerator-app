@@ -5,6 +5,7 @@ import PlinkoGameClient from './plinko/PlinkoGameClient';
 import GlobalMobileControls from './GlobalMobileControls';
 import { useDynamicContext } from "@dynamic-labs/sdk-react-core";
 import { PlinkoService } from '../utils/plinkoService';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 // Define the context interface
 interface PlinkoControlsContextType {
@@ -37,6 +38,8 @@ interface PlinkoClientWrapperProps {
 function PlinkoClientWrapper({ initialBalance = 1000 }: PlinkoClientWrapperProps) {
   const { primaryWallet } = useDynamicContext();
   const walletAddress = primaryWallet?.address || '';
+  const searchParams = useSearchParams();
+  const router = useRouter();
   
   // Add a state to track play trigger for debugging
   const [isPlayTriggered, setIsPlayTriggered] = useState(false);
@@ -52,6 +55,21 @@ function PlinkoClientWrapper({ initialBalance = 1000 }: PlinkoClientWrapperProps
       return null;
     }
   });
+  
+  // Handle referral code from URL
+  useEffect(() => {
+    // Check for referral code in URL parameters (using 'code' parameter)
+    const referralCode = searchParams.get('code');
+    if (referralCode) {
+      localStorage.setItem('referralCode', referralCode);
+      console.log(`Detected referral code: ${referralCode}`);
+      
+      // Only redirect if we're on a URL with query parameters to clean the URL
+      if (window.location.search) {
+        router.push('/');
+      }
+    }
+  }, [searchParams, router]);
   
   // Use ref for controls state to avoid re-renders
   const controlsRef = useRef<PlinkoControlsContextType>({

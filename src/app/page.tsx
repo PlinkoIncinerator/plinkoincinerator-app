@@ -1,5 +1,3 @@
-'use client'
-
 import PlinkoIncinerator from './components/PlinkoIncinerator';
 import ClientMetricsWrapper from './components/ClientMetricsWrapper';
 import Head from 'next/head';
@@ -13,8 +11,7 @@ import TokenBanner from './components/TokenBanner';
 import LiveStatsWrapper from './components/LiveStatsWrapper';
 import { ShareModalProvider } from './context/ShareModalContext';
 import AppShareModal from './components/AppShareModal';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { Suspense } from 'react';
 
 // Create a reusable component for the Solana logo
 const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
@@ -89,21 +86,6 @@ const SocialIcon = ({ href, icon, label }: SocialIconProps) => {
 export default function Home() {
   // Set some default values for the SSR render
   const randomTag = "BURN YOUR DUST, YOLO THE REST!";
-  
-  const searchParams = useSearchParams();
-  const router = useRouter();
-
-  useEffect(() => {
-    // Check for referral code in URL parameters (using 'code' parameter)
-    const referralCode = searchParams.get('code');
-    if (referralCode) {
-      localStorage.setItem('referralCode', referralCode);
-      // Only redirect if we're on a URL with query parameters to clean the URL
-      if (window.location.search) {
-        router.push('/');
-      }
-    }
-  }, [searchParams, router]);
 
   return (
     <ShareModalProvider>
@@ -176,14 +158,23 @@ export default function Home() {
               </div>
               
               {/* Live Stats Counter */}
-              <LiveStatsWrapper refreshInterval={30000} />
+              <Suspense fallback={
+                <div className="flex justify-center items-center p-6">
+                  <div className="animate-spin h-8 w-8 border-t-2 border-b-2 border-purple-500 rounded-full"></div>
+                  <p className="ml-3 text-purple-300">Loading stats...</p>
+                </div>
+              }>
+                <LiveStatsWrapper refreshInterval={30000} />
+              </Suspense>
             </div>
 
             {/* Mobile Wallet Connect Button */}
             <div className="md:hidden flex flex-col items-center justify-center mb-8">
               <div className="bg-gradient-to-r from-purple-600 via-pink-500 to-blue-600 p-[2px] rounded-xl animate-pulse hover:animate-none">
                 <div className="bg-gray-900 rounded-xl p-4">
-                  <WalletConnectButton />
+                  <Suspense fallback={<div className="h-10 w-40 bg-gray-800 animate-pulse rounded"></div>}>
+                    <WalletConnectButton />
+                  </Suspense>
                 </div>
               </div>
               <p className="text-gray-400 text-sm mt-4">Connect your wallet to start burning tokens</p>
@@ -192,11 +183,25 @@ export default function Home() {
             
             {/* Incinerator Component */}
             <div className="bg-black bg-opacity-40 backdrop-blur-sm rounded-xl p-6 border border-purple-900 shadow-2xl mb-10 mx-4">
-              <PlinkoIncinerator />
+              <Suspense fallback={
+                <div className="flex justify-center items-center p-12">
+                  <div className="animate-spin h-10 w-10 border-t-2 border-b-2 border-purple-500 rounded-full"></div>
+                  <p className="ml-3 text-purple-300">Loading incinerator...</p>
+                </div>
+              }>
+                <PlinkoIncinerator />
+              </Suspense>
             </div>
             
-            {/* Plinko Game Component - Use the client wrapper instead */}
-            <PlinkoClientWrapper initialBalance={1000} />
+            {/* Plinko Game Component - Wrap with Suspense */}
+            <Suspense fallback={
+              <div className="flex justify-center items-center p-12">
+                <div className="animate-spin h-12 w-12 border-t-2 border-b-2 border-purple-500 rounded-full"></div>
+                <p className="ml-3 text-purple-300">Loading game...</p>
+              </div>
+            }>
+              <PlinkoClientWrapper initialBalance={1000} />
+            </Suspense>
 
             {/* Features Section */}
             <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-6 px-4 md:px-0">
@@ -224,12 +229,30 @@ export default function Home() {
               <h2 className="text-2xl font-bold mb-6 text-center bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent flex items-center justify-center">
                 <span className="mr-2">📊</span> Live Plinko Stats <span className="animate-pulse ml-2">●</span>
               </h2>
-              <ClientMetricsWrapper refreshInterval={60000} />
+              <Suspense fallback={
+                <div className="flex justify-center items-center p-12">
+                  <div className="animate-spin h-8 w-8 border-t-2 border-b-2 border-purple-500 rounded-full"></div>
+                  <p className="ml-3 text-purple-300">Loading stats...</p>
+                </div>
+              }>
+                <ClientMetricsWrapper refreshInterval={60000} />
+              </Suspense>
             </div>
           </main>
           
           {/* FAQ Section */}
-          <FAQSection />
+          <Suspense fallback={
+            <div className="container mx-auto px-4 py-12">
+              <h2 className="text-2xl font-bold mb-6 text-center">FAQs</h2>
+              <div className="animate-pulse space-y-4">
+                <div className="h-16 bg-gray-800 rounded"></div>
+                <div className="h-16 bg-gray-800 rounded"></div>
+                <div className="h-16 bg-gray-800 rounded"></div>
+              </div>
+            </div>
+          }>
+            <FAQSection />
+          </Suspense>
           
           {/* Social and Partners sections */}
           <section className="py-12 bg-black bg-opacity-50">
@@ -332,7 +355,9 @@ export default function Home() {
           <Footer />
           
           {/* Global ShareModal */}
-          <AppShareModal />
+          <Suspense>
+            <AppShareModal />
+          </Suspense>
         </div>
       </>
     </ShareModalProvider>

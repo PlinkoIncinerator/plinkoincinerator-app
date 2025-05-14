@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, FormEvent } from 'react'
-import { useSearchParams } from 'next/navigation'
 import { FaTwitter, FaTelegram, FaCopy, FaShare, FaUsers, FaGift, FaCoins, FaRocket, FaMoneyBillWave, FaFire } from 'react-icons/fa'
 import { useSocial } from "../context/SocialContext"
 import SocialConnectPortal from '../components/social/SocialConnectPortal'
@@ -15,6 +14,12 @@ const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333').rep
 
 // Helper function to generate a local referral code when API is not available
 const generateLocalReferralCode = (username: string): string => {
+  // First try using the username directly
+  if (username && username.length >= 3) {
+    return username.toUpperCase();
+  }
+  
+  // If username is too short or empty, use the original logic with prefixes and random chars
   const prefix = username.substring(0, 5).toUpperCase();
   const random1 = Math.random().toString(36).substring(2, 6);
   const random2 = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
@@ -31,6 +36,7 @@ const saveSocialConnection = async (
 ): Promise<string | null> => {
   try {
     console.log(`Saving social connection for ${socialData.provider} with wallet: ${walletAddress || 'none'}`);
+    console.log(`Will attempt to use username ${socialData.username.toUpperCase()} as referral code if available`);
     
     // Ensure we have all required fields and use fallbacks
     const displayName = socialData.displayName || socialData.username || '';
@@ -77,6 +83,7 @@ const saveSocialConnection = async (
     const data = await response.json();
     console.log('Social connection saved successfully:', data);
     const referralCode = data?.data?.referralCode || null;
+    console.log('Generated referral code:', referralCode);
     
     // Cache the result
     socialConnectionCache.set(cacheKey, referralCode);
@@ -227,6 +234,7 @@ const updateWalletForSocial = async (
 ): Promise<string | null> => {
   try {
     console.log(`Updating wallet address for ${socialData.provider} user ${socialData.username}`);
+    console.log(`Attempting to use username ${socialData.username.toUpperCase()} as referral code if available`);
     
     const response = await fetch(`${API_URL}/api/social/update-wallet`, {
       method: 'POST',
@@ -247,6 +255,7 @@ const updateWalletForSocial = async (
     
     const data = await response.json();
     console.log('Wallet address updated successfully:', data);
+    console.log('Generated referral code:', data?.data?.referralCode);
     return data?.data?.referralCode || null;
   } catch (error) {
     console.error('Error updating wallet address:', error);
@@ -290,7 +299,6 @@ export default function ReferralsPage() {
       referralRate: number;
     };
   } | null>(null)
-  const searchParams = useSearchParams()
   
   const { socialData } = useSocial()
   const { primaryWallet, user } = useDynamicContext()

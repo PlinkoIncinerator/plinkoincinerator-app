@@ -43,7 +43,7 @@ const SocialConnectModal: React.FC<SocialConnectModalProps> = ({ onClose }) => {
     user
   } = useDynamicContext();
   const { signInWithSocialAccount, getLinkedAccountInformation, isLinked } = useSocialAccounts();
-  const { socialData, setSocialData, connectedSocial, setHasSocialConnected, generateReferralCode } = useSocial();
+  const { socialData, setSocialData, connectedSocial, setHasSocialConnected } = useSocial();
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'connect' | 'referral'>(socialData.length > 0 ? 'referral' : 'connect');
 
@@ -52,6 +52,7 @@ const SocialConnectModal: React.FC<SocialConnectModalProps> = ({ onClose }) => {
     let isMounted = true;
 
     const checkConnections = async () => {
+      console.log('checkConnections', isLoading);
       // Skip if we're already loading
       if (isLoading) return;
 
@@ -90,10 +91,12 @@ const SocialConnectModal: React.FC<SocialConnectModalProps> = ({ onClose }) => {
         }
       } catch (error) {
         console.error('Error checking connections:', error);
+        setIsLoading(false);
       } finally {
         if (isMounted) {
-          setIsLoading(false);
+          console.log('setting isLoading to false');
         }
+        setIsLoading(false);
       }
     };
 
@@ -130,7 +133,11 @@ const SocialConnectModal: React.FC<SocialConnectModalProps> = ({ onClose }) => {
   };
   
   const handleConnect = async (provider: SocialProvider) => {
+
+    console.log('isLoading', isLoading);
     if (isLoading) return;
+
+    console.log('handleConnect', provider);
 
     setIsLoading(true);
     try {
@@ -162,6 +169,7 @@ const SocialConnectModal: React.FC<SocialConnectModalProps> = ({ onClose }) => {
   };
 
   const handleDisconnect = async (provider: SocialProvider) => {
+    console.log('handleDisconnect', isLoading);
     if (isLoading) return;
 
     setIsLoading(true);
@@ -174,6 +182,7 @@ const SocialConnectModal: React.FC<SocialConnectModalProps> = ({ onClose }) => {
     } catch (error) {
       console.error('Failed to disconnect:', error);
     } finally {
+      console.log('setting isLoading to false');
       setIsLoading(false);
     }
   };

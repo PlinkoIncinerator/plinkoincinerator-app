@@ -1,6 +1,6 @@
 import { Config } from "../config/solana";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { burnTokens, verifyTransactionWithServer } from "./tokenBurner";
+import { burnTokens, verifyTransaction } from "./tokenBurner";
 
 // Simple delay function to help with rate limiting
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -249,7 +249,7 @@ export async function batchBurnTokens(
               }
               
               try {
-                const verificationResult = await verifyTransactionWithServer(
+                const verificationResult = await verifyTransaction(
                   dynamicWallet.address,
                   result.signature,
                   result.feeTransferSignature,

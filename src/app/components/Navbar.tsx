@@ -13,7 +13,7 @@ export default function Navbar() {
   const [isIos, setIsIos] = useState(false)
   const [isAndroid, setIsAndroid] = useState(false)
   const [showSocialModal, setShowSocialModal] = useState(false)
-  const { socialData, connectedSocial, referral } = useSocial()
+  const { socialData, connectedSocial } = useSocial()
   const { primaryWallet } = useDynamicContext()
 
   useEffect(() => {
@@ -74,9 +74,7 @@ export default function Navbar() {
                 className="text-white hover:text-purple-400 transition-colors flex items-center"
               >
                 <span className="mr-1">🔗</span> Referrals
-                {referral && (
-                  <span className="ml-1 bg-purple-500 text-white text-xs px-1.5 py-0.5 rounded-full">{referral.referredUsers.length}</span>
-                )}
+       
               </Link>
               <Link
                 href="/token"

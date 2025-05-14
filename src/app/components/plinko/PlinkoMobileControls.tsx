@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
-import { formatAmount, getWalletTransactions, BalanceSummary } from '../../utils/walletService';
+import { formatAmount, getWalletTransactions, BalanceSummary, processWithdrawal } from '../../utils/walletService';
 
 interface PlinkoMobileControlsProps {
   walletAddress: string;
@@ -117,6 +117,12 @@ export default function PlinkoMobileControls({
 
   // Check if balance is insufficient for minimum bet - only in real mode
   const isBalanceInsufficient = !isTestMode && displayBalance < minBetAmount;
+
+  // Add state for withdrawal functionality
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [withdrawalAmount, setWithdrawalAmount] = useState<number | null>(null);
+  const [isWithdrawing, setIsWithdrawing] = useState<boolean>(false);
+  const [showWithdrawalModal, setShowWithdrawalModal] = useState<boolean>(false);
 
   // Force update when props change drastically
   useEffect(() => {
@@ -494,6 +500,58 @@ export default function PlinkoMobileControls({
     );
   };
   
+  // Handle withdrawal button click
+  const handleWithdrawalClick = () => {
+    if (!displayBalance || displayBalance <= 0 || isTestMode) {
+      setError('No balance available for withdrawal');
+      return;
+    }
+    
+    setWithdrawalAmount(displayBalance);
+    setShowWithdrawalModal(true);
+  };
+  
+  // Handle withdrawal confirmation
+  const handleWithdrawalConfirm = async () => {
+    if (!walletAddress || !withdrawalAmount || withdrawalAmount <= 0) {
+      setError('Invalid withdrawal amount');
+      return;
+    }
+    
+    try {
+      setIsWithdrawing(true);
+      setError(null);
+      
+      const result = await processWithdrawal(walletAddress, withdrawalAmount, false);
+      
+      setSuccessMessage(`Successfully withdrawn ${formatAmount(withdrawalAmount)} to your wallet!`);
+      setShowWithdrawalModal(false);
+      
+      // Clear success message after 5 seconds
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 5000);
+      
+    } catch (err) {
+      console.error('Error processing withdrawal:', err);
+      setError(err instanceof Error ? err.message : 'Failed to process withdrawal');
+    } finally {
+      setIsWithdrawing(false);
+    }
+  };
+  
+  // Handle withdrawal amount change
+  const handleWithdrawalAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = parseFloat(e.target.value);
+    if (isNaN(value) || value <= 0) {
+      setWithdrawalAmount(null);
+    } else if (value > displayBalance) {
+      setWithdrawalAmount(displayBalance);
+    } else {
+      setWithdrawalAmount(value);
+    }
+  };
+
   return (
     <div className="w-full bg-gradient-to-b from-gray-900 to-gray-950 text-white shadow-2xl border-t border-gray-700 rounded-t-xl">
       <SliderStyles />
@@ -721,19 +779,38 @@ export default function PlinkoMobileControls({
                   </div>
                 )}
                 
-                {/* Action Button */}
-                <button
-                  onClick={handlePlay}
-                  disabled={disabled || betAmount <= 0 || 
-                    betAmount > displayBalance || 
-                    (!isTestMode && displayBalance < minBetAmount)}
-                  className={`w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 
-                    disabled:from-gray-700 disabled:to-gray-700 disabled:opacity-50 py-4 rounded-lg font-bold text-center text-lg
-                    ${isButtonCooling ? 'opacity-80 scale-95' : ''} 
-                    transition-all duration-100 active:scale-95`}
-                >
-                  Drop Ball
-                </button>
+                {successMessage && (
+                  <div className="bg-green-900 text-green-200 p-2 rounded text-sm mb-4">
+                    {successMessage}
+                  </div>
+                )}
+                
+                {/* Action Buttons - Updated to include withdraw button */}
+                <div className="space-y-2">
+                  <button
+                    onClick={handlePlay}
+                    disabled={disabled || betAmount <= 0 || 
+                      betAmount > displayBalance || 
+                      (!isTestMode && displayBalance < minBetAmount)}
+                    className={`w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 
+                      disabled:from-gray-700 disabled:to-gray-700 disabled:opacity-50 py-4 rounded-lg font-bold text-center text-lg
+                      ${isButtonCooling ? 'opacity-80 scale-95' : ''} 
+                      transition-all duration-100 active:scale-95`}
+                  >
+                    Drop Ball
+                  </button>
+                  
+                  {/* Only show withdraw button in real mode (not test mode) */}
+                  {!isTestMode && (
+                    <button
+                      onClick={handleWithdrawalClick}
+                      disabled={disabled || displayBalance <= 0}
+                      className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-700 disabled:opacity-50 py-3 rounded-lg font-medium text-center"
+                    >
+                      Withdraw Funds
+                    </button>
+                  )}
+                </div>
               </>
             ) : (
               // Info tab content
@@ -758,6 +835,92 @@ export default function PlinkoMobileControls({
             )}
           </div>
         </>
+      )}
+      
+      {/* Withdrawal Modal */}
+      {showWithdrawalModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 px-4">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-bold mb-4">Withdraw Funds</h3>
+            
+            <div className="mb-4">
+              <label className="block text-sm text-gray-400 mb-1">Withdrawal Amount</label>
+              <div className="flex items-center">
+                <input
+                  type="number"
+                  value={withdrawalAmount || ''}
+                  onChange={handleWithdrawalAmountChange}
+                  className="w-full bg-gray-700 p-2 rounded-l text-white focus:outline-none"
+                  min={minBetAmount}
+                  max={displayBalance}
+                  step={minBetAmount}
+                  disabled={isWithdrawing}
+                />
+                <div className="bg-gray-600 px-3 py-2 rounded-r">SOL</div>
+              </div>
+              
+              <div className="flex justify-between mt-2 text-xs text-gray-400">
+                <button 
+                  onClick={() => setWithdrawalAmount(displayBalance * 0.25)}
+                  className="underline"
+                  disabled={isWithdrawing}
+                >
+                  25%
+                </button>
+                <button 
+                  onClick={() => setWithdrawalAmount(displayBalance * 0.5)}
+                  className="underline"
+                  disabled={isWithdrawing}
+                >
+                  50%
+                </button>
+                <button 
+                  onClick={() => setWithdrawalAmount(displayBalance * 0.75)}
+                  className="underline"
+                  disabled={isWithdrawing}
+                >
+                  75%
+                </button>
+                <button 
+                  onClick={() => setWithdrawalAmount(displayBalance)}
+                  className="underline"
+                  disabled={isWithdrawing}
+                >
+                  Max
+                </button>
+              </div>
+            </div>
+            
+            <div className="bg-gray-900 p-3 rounded mb-4 text-sm">
+              <p className="text-gray-400">Withdrawing to wallet:</p>
+              <p className="font-mono text-xs break-all mt-1">{walletAddress}</p>
+            </div>
+            
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowWithdrawalModal(false)}
+                className="flex-1 bg-gray-700 hover:bg-gray-600 py-3 rounded font-medium"
+                disabled={isWithdrawing}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleWithdrawalConfirm}
+                disabled={isWithdrawing || !withdrawalAmount || withdrawalAmount <= 0}
+                className="flex-1 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-700 disabled:opacity-50 py-3 rounded font-medium"
+              >
+                {isWithdrawing ? (
+                  <span className="flex items-center justify-center">
+                    <span className="w-4 h-4 border-2 border-t-white border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin mr-2"></span>
+                    Processing...
+                  </span>
+                ) : (
+                  'Confirm Withdrawal'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

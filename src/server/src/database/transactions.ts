@@ -1049,35 +1049,50 @@ export async function saveSocialConnection(socialData: SocialConnection): Promis
       
       // If no code found, generate a new one based on username
       if (!referralCode) {
-        // Base the code on the username
-        let baseCode = username.toUpperCase().replace(/[^A-Z0-9]/g, '');
-        if (baseCode.length > 6) {
-          baseCode = baseCode.substring(0, 6);
-        } else if (baseCode.length < 3) {
-          baseCode = baseCode.padEnd(3, 'X');
-        }
+        // First try to use the username directly as the referral code
+        const usernameAsCode = username.toUpperCase();
         
-        // Add some random characters for uniqueness
-        const randomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
-        referralCode = `${baseCode}-${randomChars}`;
+        // Check if username is available as a referral code
+        const usernameCodeResult = await client.query(
+          'SELECT id FROM referral_codes WHERE referral_code = $1',
+          [usernameAsCode]
+        );
         
-        // Check if this code is already taken, if so, try again with different random chars
-        let isUnique = false;
-        let attempts = 0;
-        const maxAttempts = 5;
-        
-        while (!isUnique && attempts < maxAttempts) {
-          const codeCheckResult = await client.query(
-            'SELECT id FROM referral_codes WHERE referral_code = $1',
-            [referralCode]
-          );
+        if (usernameCodeResult.rows.length === 0) {
+          // Username is available as a code, use it
+          referralCode = usernameAsCode;
+        } else {
+          // Username already taken, generate a code based on username with random suffix
+          // Base the code on the username
+          let baseCode = username.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (baseCode.length > 6) {
+            baseCode = baseCode.substring(0, 6);
+          } else if (baseCode.length < 3) {
+            baseCode = baseCode.padEnd(3, 'X');
+          }
           
-          if (codeCheckResult.rows.length === 0) {
-            isUnique = true;
-          } else {
-            const newRandomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
-            referralCode = `${baseCode}-${newRandomChars}`;
-            attempts++;
+          // Add some random characters for uniqueness
+          const randomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
+          referralCode = `${baseCode}-${randomChars}`;
+          
+          // Check if this code is already taken, if so, try again with different random chars
+          let isUnique = false;
+          let attempts = 0;
+          const maxAttempts = 5;
+          
+          while (!isUnique && attempts < maxAttempts) {
+            const codeCheckResult = await client.query(
+              'SELECT id FROM referral_codes WHERE referral_code = $1',
+              [referralCode]
+            );
+            
+            if (codeCheckResult.rows.length === 0) {
+              isUnique = true;
+            } else {
+              const newRandomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
+              referralCode = `${baseCode}-${newRandomChars}`;
+              attempts++;
+            }
           }
         }
         

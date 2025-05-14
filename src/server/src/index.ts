@@ -1382,137 +1382,6 @@ app.get('/api/social/:walletAddress', async (req: any, res: any) => {
   }
 });
 
-// New endpoint: Get referral information for a wallet
-app.get('/api/referrals/:walletAddress', async (req: any, res: any) => {
-  const { walletAddress } = req.params;
-  
-  if (!walletAddress) {
-    return res.status(400).json({
-      status: 'error',
-      message: 'Wallet address is required'
-    });
-  }
-  
-  try {
-    const client = await pool.connect();
-    
-    try {
-      // Get referral code with username
-      const codeResult = await client.query(
-        'SELECT referral_code, username FROM referral_codes WHERE wallet_address = $1',
-        [walletAddress]
-      );
-      
-      const referralCode = codeResult.rows.length > 0 ? codeResult.rows[0].referral_code : null;
-      const username = codeResult.rows.length > 0 ? codeResult.rows[0].username : null;
-      
-      // Get referrals
-      const referralsResult = await client.query(
-        'SELECT referred_wallet, created_at FROM referral_uses WHERE referrer_wallet = $1',
-        [walletAddress]
-      );
-      
-      // Get rewards
-      const rewardsResult = await client.query(
-        `SELECT 
-          SUM(CASE WHEN is_claimed = FALSE THEN amount ELSE 0 END) as available,
-          SUM(CASE WHEN is_claimed = TRUE THEN amount ELSE 0 END) as claimed
-        FROM referral_rewards
-        WHERE wallet_address = $1`,
-        [walletAddress]
-      );
-      
-      const availableRewards = parseFloat(rewardsResult.rows[0]?.available || '0');
-      const claimedRewards = parseFloat(rewardsResult.rows[0]?.claimed || '0');
-      
-      // Calculate average house profit from referred users using 20% payout 
-      const avgPayoutResult = await client.query(`
-        WITH all_wallets AS (
-            SELECT DISTINCT wallet_address
-            FROM deposits
-        ),
-        user_house_profit AS (
-            SELECT 
-                aw.wallet_address,
-                COALESCE(SUM(CASE 
-                    WHEN t.type = 'game_bet' THEN t.amount
-                    WHEN t.type = 'game_win' THEN -t.amount
-                    ELSE 0
-                END), 0) AS house_profit_from_user
-            FROM 
-                all_wallets aw
-            LEFT JOIN 
-                transactions t ON aw.wallet_address = t.wallet_address AND t.type IN ('game_bet', 'game_win')
-            GROUP BY 
-                aw.wallet_address
-        )
-        SELECT 
-            AVG(house_profit_from_user * 0.20) AS avg_diluted_referral_payout
-        FROM 
-            user_house_profit;
-      `);
-      
-      // Calculate actual house profit from this user's referrals
-      const referralProfitResult = await client.query(`
-        WITH referred_wallets AS (
-            SELECT referred_wallet 
-            FROM referral_uses 
-            WHERE referrer_wallet = $1
-        ),
-        referred_profits AS (
-            SELECT 
-                rw.referred_wallet,
-                COALESCE(SUM(CASE 
-                    WHEN t.type = 'game_bet' THEN t.amount
-                    WHEN t.type = 'game_win' THEN -t.amount
-                    ELSE 0
-                END), 0) AS house_profit_from_referred
-            FROM 
-                referred_wallets rw
-            LEFT JOIN 
-                transactions t ON rw.referred_wallet = t.wallet_address AND t.type IN ('game_bet', 'game_win')
-            GROUP BY 
-                rw.referred_wallet
-        )
-        SELECT 
-            SUM(house_profit_from_referred) AS total_house_profit,
-            SUM(house_profit_from_referred * 0.20) AS referral_payout_potential
-        FROM 
-            referred_profits;
-      `, [walletAddress]);
-      
-      const avgReferralPayout = parseFloat(avgPayoutResult.rows[0]?.avg_diluted_referral_payout || '0');
-      const totalHouseProfit = parseFloat(referralProfitResult.rows[0]?.total_house_profit || '0');
-      const payoutPotential = parseFloat(referralProfitResult.rows[0]?.referral_payout_potential || '0');
-      
-      return res.status(200).json({
-        status: 'success',
-        data: {
-          referralCode,
-          username,
-          referrals: referralsResult.rows,
-          availableRewards,
-          claimedRewards,
-          totalEarned: availableRewards + claimedRewards,
-          referralStats: {
-            avgReferralPayout,
-            totalHouseProfit,
-            payoutPotential,
-            referralRate: 0.20
-          }
-        }
-      });
-    } finally {
-      client.release();
-    }
-  } catch (error) {
-    console.error('Error getting referral info:', error);
-    return res.status(500).json({
-      status: 'error',
-      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
-    });
-  }
-});
 
 // New endpoint: Apply a referral code
 app.post('/api/referrals/apply', async (req: any, res: any) => {
@@ -1645,14 +1514,31 @@ app.post('/api/social/update-wallet', async (req: any, res: any) => {
         );
         
         if (walletCodeResult.rows.length === 0) {
-          // No existing code for this wallet, so generate a new one based on the username
-          const baseCode = username.substring(0, 5).toUpperCase();
-          const randomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
-          const referralCode = `${baseCode}-${randomChars}`;
+          // No existing code for this wallet, so first try using username directly
+          let referralCode;
+          const usernameAsCode = username.toUpperCase();
+          
+          // Check if username is available as a referral code
+          const usernameCodeResult = await client.query(
+            'SELECT id FROM referral_codes WHERE referral_code = $1',
+            [usernameAsCode]
+          );
+          
+          if (usernameCodeResult.rows.length === 0) {
+            // Username is available as a code, use it
+            referralCode = usernameAsCode;
+          } else {
+            // Username already taken, so generate based on username with random chars
+            const baseCode = username.substring(0, 5).toUpperCase();
+            const randomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
+            referralCode = `${baseCode}-${randomChars}`;
+          }
+          
+          console.log(`Creating new referral code for ${username}: ${referralCode}`);
           
           await client.query(
-            'INSERT INTO referral_codes (wallet_address, referral_code) VALUES ($1, $2)',
-            [walletAddress, referralCode]
+            'INSERT INTO referral_codes (wallet_address, referral_code, username) VALUES ($1, $2, $3)',
+            [walletAddress, referralCode, username]
           );
         }
       }

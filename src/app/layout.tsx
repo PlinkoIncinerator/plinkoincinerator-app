@@ -28,7 +28,6 @@ export const metadata: Metadata = {
   },
   robots: "index, follow",
   manifest: "/manifest.json",
-  themeColor: "#8B5CF6",
   applicationName: "PlinkoIncinerator",
   appleWebApp: {
     capable: true,
