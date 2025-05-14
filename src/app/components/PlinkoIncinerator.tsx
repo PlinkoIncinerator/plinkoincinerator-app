@@ -104,6 +104,18 @@ export default function PlinkoIncinerator() {
   const currentMaxValueRef = useRef(maxTokenValue);
   const isRefreshingRef = useRef(false);
 
+  // Step 1: Add a state for referral code
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  
+  // Step 2: Load referral code from localStorage on component mount
+  useEffect(() => {
+    const storedReferralCode = localStorage.getItem('referralCode');
+    if (storedReferralCode) {
+      setReferralCode(storedReferralCode);
+      addDebugMessage(`Loaded referral code from localStorage: ${storedReferralCode}`);
+    }
+  }, []);
+
   // Clear any existing error messages on component mount
   useEffect(() => {
     setLoadingMessage('');
@@ -962,6 +974,12 @@ export default function PlinkoIncinerator() {
         <div className="flex justify-between items-center">
           <h2 className="text-xl font-bold text-purple-300">Wallet Status</h2>
           <div>
+            {referralCode && (
+              <div className="mr-3 inline-block bg-green-900/30 px-3 py-1 rounded-full text-sm text-green-400 border border-green-800/50">
+                <span className="mr-1">🎁</span> 
+                Using referral: {referralCode}
+              </div>
+            )}
 
             {primaryWallet && gameState === 'ready' && (
               <button 

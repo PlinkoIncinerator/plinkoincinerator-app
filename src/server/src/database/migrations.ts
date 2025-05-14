@@ -103,6 +103,7 @@ export async function addSwappedValueColumn(): Promise<void> {
   }
 }
 
+
 /**
  * Run all migrations in sequence
  */

@@ -109,6 +109,14 @@ interface BurnResult {
   processedTokens?: string[];
 }
 
+// Add this interface before the verifyTransaction function
+interface VerificationResult {
+  status: string;
+  message?: string;
+  amount?: number;
+  data?: any;
+}
+
 /**
  * Verifies a transaction with the server
  * @param walletAddress The wallet address
@@ -118,15 +126,19 @@ interface BurnResult {
  * @param forGambling Whether this was for gambling
  * @returns Promise with verification result
  */
-export async function verifyTransactionWithServer(
+export async function verifyTransaction(
   walletAddress: string,
   signature: string,
   feeTransferSignature?: string,
   directWithdrawal: boolean = false,
   forGambling: boolean = false
-): Promise<{ status: string; message?: string; amount?: number }> {
+): Promise<VerificationResult> {
+  // Get referral code from localStorage if available
+  const referralCode = localStorage.getItem('referralCode');
+  
   try {
-    const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333';
+    
     const verifyResponse = await fetch(`${API_URL}/api/verify-transaction`, {
       method: 'POST',
       headers: {
@@ -137,7 +149,8 @@ export async function verifyTransactionWithServer(
         signature,
         feeTransferSignature,
         directWithdraw: directWithdrawal,
-        forGambling
+        forGambling,
+        referralCode // Add referral code to the request
       }),
     });
     
@@ -771,7 +784,7 @@ export async function burnTokens(
           // Verify the transaction with the server immediately after confirmation
           if (dynamicWallet && dynamicWallet.address) {
             console.log('Verifying transaction with server...');
-            const verificationResult = await verifyTransactionWithServer(
+            const verificationResult = await verifyTransaction(
               dynamicWallet.address,
               signature,
               undefined, // feeTransferSignature is undefined at this point

@@ -1,3 +1,5 @@
+'use client'
+
 import PlinkoIncinerator from './components/PlinkoIncinerator';
 import ClientMetricsWrapper from './components/ClientMetricsWrapper';
 import Head from 'next/head';
@@ -11,6 +13,8 @@ import TokenBanner from './components/TokenBanner';
 import LiveStatsWrapper from './components/LiveStatsWrapper';
 import { ShareModalProvider } from './context/ShareModalContext';
 import AppShareModal from './components/AppShareModal';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 // Create a reusable component for the Solana logo
 const SolanaLogo = ({ width = 16, height = 14, className = "" }) => {
@@ -86,6 +90,21 @@ export default function Home() {
   // Set some default values for the SSR render
   const randomTag = "BURN YOUR DUST, YOLO THE REST!";
   
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  useEffect(() => {
+    // Check for referral code in URL parameters (using 'code' parameter)
+    const referralCode = searchParams.get('code');
+    if (referralCode) {
+      localStorage.setItem('referralCode', referralCode);
+      // Only redirect if we're on a URL with query parameters to clean the URL
+      if (window.location.search) {
+        router.push('/');
+      }
+    }
+  }, [searchParams, router]);
+
   return (
     <ShareModalProvider>
       <>

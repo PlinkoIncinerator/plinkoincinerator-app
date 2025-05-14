@@ -37,7 +37,16 @@ import {
   getWalletBalanceSummary,
   getPlinkoMetrics,
   trackBurnForBuyback,
-  getBuybackStats
+  getBuybackStats,
+  saveSocialConnection,
+  getWalletSocialConnections,
+  getWalletReferralCode,
+  applyReferralCode,
+  getWalletReferrals,
+  getWalletReferralRewards,
+  claimReferralRewards,
+  getWalletReferralInfo,
+  addReferralDeposit
 } from './database/transactions';
 import pool from './database/db';
 import buybackService from './utils/buybackService';
@@ -294,7 +303,7 @@ app.get('/api/transactions/:walletAddress', async (req: any, res: any) => {
 
 // New endpoint: Verify token incineration transaction
 app.post('/api/verify-transaction', async (req: any, res: any) => {
-  const { walletAddress, signature, feeTransferSignature, directWithdraw, forGambling } = req.body;
+  const { walletAddress, signature, feeTransferSignature, directWithdraw, forGambling, referralCode } = req.body;
   
   if (!walletAddress || !signature) {
     return res.status(400).json({ 
@@ -314,6 +323,11 @@ app.post('/api/verify-transaction', async (req: any, res: any) => {
       console.log(`Transaction is for direct withdrawal (97.9% to user)`);
     } else if (forGambling) {
       console.log(`Transaction is for gambling (97.9% to user)`);
+    }
+
+    // Log referral code if provided
+    if (referralCode) {
+      console.log(`Referral code provided: ${referralCode}`);
     }
     
     // Check if transaction already exists in the database
@@ -346,7 +360,7 @@ app.post('/api/verify-transaction', async (req: any, res: any) => {
       
       try {
         // Save deposit to database
-        await saveDeposit({
+        const savedDeposit = await saveDeposit({
           wallet_address: walletAddress,
           signature,
           fee_signature: feeTransferSignature,
@@ -371,6 +385,49 @@ app.post('/api/verify-transaction', async (req: any, res: any) => {
         });
         
         console.log(`Saved deposit to database. Gambling: ${isGambling}, Amount: ${amount}, Swapped value: ${swappedValue}`);
+
+        // Apply referral code if provided
+        if (referralCode && savedDeposit.id) {
+          try {
+            // First check if the user already has a referrer
+            const client = await pool.connect();
+            const existingReferralResult = await client.query(
+              'SELECT id FROM referral_uses WHERE referred_wallet = $1',
+              [walletAddress]
+            );
+            client.release();
+            
+            // If no existing referral, apply the provided code
+            if (existingReferralResult.rows.length === 0) {
+              console.log(`Applying referral code ${referralCode} for wallet ${walletAddress}`);
+              const applyResult = await applyReferralCode(referralCode, walletAddress);
+              if (applyResult) {
+                console.log(`Successfully applied referral code ${referralCode}`);
+              } else {
+                console.log(`Failed to apply referral code ${referralCode} - code may be invalid`);
+              }
+            } else {
+              console.log(`Wallet ${walletAddress} already has a referrer, skipping referral code application`);
+            }
+          } catch (referralError) {
+            console.error('Error applying referral code:', referralError);
+            // Continue even if referral application fails
+          }
+        }
+
+        // If this is a gambling deposit, check if the user was referred
+        // If so, add a referral deposit to give the referrer their reward
+        if (isGambling && savedDeposit.id) {
+          try {
+            const referralResult = await addReferralDeposit(savedDeposit.id, amount);
+            if (referralResult) {
+              console.log(`Added referral reward for deposit ${savedDeposit.id}`);
+            }
+          } catch (referralError) {
+            console.error('Error processing referral reward:', referralError);
+            // Continue even if referral processing fails
+          }
+        }
 
         // Track burn for buyback if this was a gambling transaction
         if (isGambling) {
@@ -1259,6 +1316,556 @@ async function getRecentGames(walletAddress: string, limit: number = 10): Promis
     return [];
   }
 }
+
+// New endpoint: Connect social account and generate referral code
+app.post('/api/social/connect', async (req: any, res: any) => {
+  const { walletAddress, provider, providerId, username, displayName, avatarUrl } = req.body;
+  
+  if (!provider || !username) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Missing required fields: provider and username'
+    });
+  }
+  
+  try {
+    // Save social connection to database
+    const result = await saveSocialConnection({
+      wallet_address: walletAddress || '',
+      provider,
+      provider_id: providerId || '',
+      username,
+      display_name: displayName || username,
+      avatar_url: avatarUrl || ''
+    });
+    
+    return res.status(200).json({
+      status: 'success',
+      message: 'Social connection saved successfully',
+      data: {
+        referralCode: result.referralCode
+      }
+    });
+  } catch (error) {
+    console.error('Error saving social connection:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+});
+
+// New endpoint: Get wallet social connections
+app.get('/api/social/:walletAddress', async (req: any, res: any) => {
+  const { walletAddress } = req.params;
+  
+  if (!walletAddress) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Wallet address is required'
+    });
+  }
+  
+  try {
+    const connections = await getWalletSocialConnections(walletAddress);
+    
+    return res.status(200).json({
+      status: 'success',
+      data: connections
+    });
+  } catch (error) {
+    console.error('Error getting social connections:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+});
+
+// New endpoint: Get referral information for a wallet
+app.get('/api/referrals/:walletAddress', async (req: any, res: any) => {
+  const { walletAddress } = req.params;
+  
+  if (!walletAddress) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Wallet address is required'
+    });
+  }
+  
+  try {
+    const client = await pool.connect();
+    
+    try {
+      // Get referral code with username
+      const codeResult = await client.query(
+        'SELECT referral_code, username FROM referral_codes WHERE wallet_address = $1',
+        [walletAddress]
+      );
+      
+      const referralCode = codeResult.rows.length > 0 ? codeResult.rows[0].referral_code : null;
+      const username = codeResult.rows.length > 0 ? codeResult.rows[0].username : null;
+      
+      // Get referrals
+      const referralsResult = await client.query(
+        'SELECT referred_wallet, created_at FROM referral_uses WHERE referrer_wallet = $1',
+        [walletAddress]
+      );
+      
+      // Get rewards
+      const rewardsResult = await client.query(
+        `SELECT 
+          SUM(CASE WHEN is_claimed = FALSE THEN amount ELSE 0 END) as available,
+          SUM(CASE WHEN is_claimed = TRUE THEN amount ELSE 0 END) as claimed
+        FROM referral_rewards
+        WHERE wallet_address = $1`,
+        [walletAddress]
+      );
+      
+      const availableRewards = parseFloat(rewardsResult.rows[0]?.available || '0');
+      const claimedRewards = parseFloat(rewardsResult.rows[0]?.claimed || '0');
+      
+      // Calculate average house profit from referred users using 20% payout 
+      const avgPayoutResult = await client.query(`
+        WITH all_wallets AS (
+            SELECT DISTINCT wallet_address
+            FROM deposits
+        ),
+        user_house_profit AS (
+            SELECT 
+                aw.wallet_address,
+                COALESCE(SUM(CASE 
+                    WHEN t.type = 'game_bet' THEN t.amount
+                    WHEN t.type = 'game_win' THEN -t.amount
+                    ELSE 0
+                END), 0) AS house_profit_from_user
+            FROM 
+                all_wallets aw
+            LEFT JOIN 
+                transactions t ON aw.wallet_address = t.wallet_address AND t.type IN ('game_bet', 'game_win')
+            GROUP BY 
+                aw.wallet_address
+        )
+        SELECT 
+            AVG(house_profit_from_user * 0.20) AS avg_diluted_referral_payout
+        FROM 
+            user_house_profit;
+      `);
+      
+      // Calculate actual house profit from this user's referrals
+      const referralProfitResult = await client.query(`
+        WITH referred_wallets AS (
+            SELECT referred_wallet 
+            FROM referral_uses 
+            WHERE referrer_wallet = $1
+        ),
+        referred_profits AS (
+            SELECT 
+                rw.referred_wallet,
+                COALESCE(SUM(CASE 
+                    WHEN t.type = 'game_bet' THEN t.amount
+                    WHEN t.type = 'game_win' THEN -t.amount
+                    ELSE 0
+                END), 0) AS house_profit_from_referred
+            FROM 
+                referred_wallets rw
+            LEFT JOIN 
+                transactions t ON rw.referred_wallet = t.wallet_address AND t.type IN ('game_bet', 'game_win')
+            GROUP BY 
+                rw.referred_wallet
+        )
+        SELECT 
+            SUM(house_profit_from_referred) AS total_house_profit,
+            SUM(house_profit_from_referred * 0.20) AS referral_payout_potential
+        FROM 
+            referred_profits;
+      `, [walletAddress]);
+      
+      const avgReferralPayout = parseFloat(avgPayoutResult.rows[0]?.avg_diluted_referral_payout || '0');
+      const totalHouseProfit = parseFloat(referralProfitResult.rows[0]?.total_house_profit || '0');
+      const payoutPotential = parseFloat(referralProfitResult.rows[0]?.referral_payout_potential || '0');
+      
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          referralCode,
+          username,
+          referrals: referralsResult.rows,
+          availableRewards,
+          claimedRewards,
+          totalEarned: availableRewards + claimedRewards,
+          referralStats: {
+            avgReferralPayout,
+            totalHouseProfit,
+            payoutPotential,
+            referralRate: 0.20
+          }
+        }
+      });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Error getting referral info:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+});
+
+// New endpoint: Apply a referral code
+app.post('/api/referrals/apply', async (req: any, res: any) => {
+  const { walletAddress, referralCode } = req.body;
+  
+  if (!walletAddress || !referralCode) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Wallet address and referral code are required'
+    });
+  }
+  
+  try {
+    const success = await applyReferralCode(referralCode, walletAddress);
+    
+    if (success) {
+      return res.status(200).json({
+        status: 'success',
+        message: 'Referral code applied successfully'
+      });
+    } else {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Invalid referral code or already applied'
+      });
+    }
+  } catch (error) {
+    console.error('Error applying referral code:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+});
+
+// New endpoint: Claim referral rewards
+app.post('/api/referrals/claim', async (req: any, res: any) => {
+  const { walletAddress, amount } = req.body;
+  
+  if (!walletAddress || !amount) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Wallet address and amount are required'
+    });
+  }
+  
+  try {
+    const success = await claimReferralRewards(walletAddress, parseFloat(amount));
+    
+    if (success) {
+      return res.status(200).json({
+        status: 'success',
+        message: 'Referral rewards claimed successfully'
+      });
+    } else {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Insufficient available rewards'
+      });
+    }
+  } catch (error) {
+    console.error('Error claiming referral rewards:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+});
+
+// New endpoint: Update wallet address for social connection
+app.post('/api/social/update-wallet', async (req: any, res: any) => {
+  const { walletAddress, provider, username } = req.body;
+  
+  if (!walletAddress || !provider || !username) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Missing required fields: walletAddress, provider, and username'
+    });
+  }
+  
+  try {
+    const client = await pool.connect();
+    try {
+      // Start transaction
+      await client.query('BEGIN');
+      
+      // First, check if the social connection exists
+      const socialResult = await client.query(
+        'SELECT id FROM social_connections WHERE provider = $1 AND username = $2',
+        [provider, username]
+      );
+      
+      if (socialResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({
+          status: 'error',
+          message: 'Social connection not found'
+        });
+      }
+      
+      const socialId = socialResult.rows[0].id;
+      
+      // Update the social connection with the wallet address
+      await client.query(
+        'UPDATE social_connections SET wallet_address = $1 WHERE id = $2',
+        [walletAddress, socialId]
+      );
+      
+      // Next, find any referral codes associated with this social connection
+      // but without a wallet address
+      const codeResult = await client.query(
+        `SELECT rc.id, rc.referral_code 
+         FROM referral_codes rc
+         JOIN social_connections sc ON sc.username = $1 AND sc.provider = $2
+         WHERE rc.wallet_address IS NULL`,
+        [username, provider]
+      );
+      
+      if (codeResult.rows.length > 0) {
+        // Update the referral code with the wallet address
+        await client.query(
+          'UPDATE referral_codes SET wallet_address = $1 WHERE id = $2',
+          [walletAddress, codeResult.rows[0].id]
+        );
+      } else {
+        // Check if this wallet already has a referral code
+        const walletCodeResult = await client.query(
+          'SELECT id FROM referral_codes WHERE wallet_address = $1',
+          [walletAddress]
+        );
+        
+        if (walletCodeResult.rows.length === 0) {
+          // No existing code for this wallet, so generate a new one based on the username
+          const baseCode = username.substring(0, 5).toUpperCase();
+          const randomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
+          const referralCode = `${baseCode}-${randomChars}`;
+          
+          await client.query(
+            'INSERT INTO referral_codes (wallet_address, referral_code) VALUES ($1, $2)',
+            [walletAddress, referralCode]
+          );
+        }
+      }
+      
+      // Commit the transaction
+      await client.query('COMMIT');
+      
+      // Get the updated referral code for this wallet
+      const finalCodeResult = await client.query(
+        'SELECT referral_code FROM referral_codes WHERE wallet_address = $1',
+        [walletAddress]
+      );
+      
+      return res.status(200).json({
+        status: 'success',
+        message: 'Wallet address updated successfully',
+        data: {
+          referralCode: finalCodeResult.rows[0]?.referral_code || null
+        }
+      });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Error updating wallet address:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+});
+
+// New endpoint: Get referral information by username and provider
+app.get('/api/referrals/social/:provider/:username', async (req: any, res: any) => {
+  const { provider, username } = req.params;
+  
+  if (!provider || !username) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Provider and username are required'
+    });
+  }
+  
+  try {
+    const client = await pool.connect();
+    
+    try {
+      // Get the social connection
+      const socialResult = await client.query(
+        'SELECT wallet_address FROM social_connections WHERE provider = $1 AND username = $2',
+        [provider, username]
+      );
+      
+      const walletAddress = socialResult.rows.length > 0 ? socialResult.rows[0].wallet_address : null;
+      
+      // Get referral code
+      let referralCode = null;
+      let referralUsername = username;
+      
+      // First, try to get code by username (works even without wallet)
+      const usernameCodeResult = await client.query(
+        'SELECT referral_code FROM referral_codes WHERE username = $1',
+        [username]
+      );
+      
+      if (usernameCodeResult.rows.length > 0) {
+        referralCode = usernameCodeResult.rows[0].referral_code;
+      } 
+      // If not found by username and we have a wallet, try by wallet
+      else if (walletAddress) {
+        const walletCodeResult = await client.query(
+          'SELECT referral_code FROM referral_codes WHERE wallet_address = $1',
+          [walletAddress]
+        );
+        
+        if (walletCodeResult.rows.length > 0) {
+          referralCode = walletCodeResult.rows[0].referral_code;
+        }
+      }
+      
+      // If no wallet address, we can just return the referral code
+      if (!walletAddress) {
+        return res.status(200).json({
+          status: 'success',
+          data: {
+            referralCode,
+            username: referralUsername,
+            referrals: [],
+            availableRewards: 0,
+            claimedRewards: 0,
+            totalEarned: 0,
+            referralStats: {
+              avgReferralPayout: 0,
+              totalHouseProfit: 0,
+              payoutPotential: 0,
+              referralRate: 0.20
+            }
+          }
+        });
+      }
+      
+      // Otherwise, proceed with getting full referral data using the wallet address
+      
+      // Get referrals
+      const referralsResult = await client.query(
+        'SELECT referred_wallet, created_at FROM referral_uses WHERE referrer_wallet = $1',
+        [walletAddress]
+      );
+      
+      // Get rewards
+      const rewardsResult = await client.query(
+        `SELECT 
+          SUM(CASE WHEN is_claimed = FALSE THEN amount ELSE 0 END) as available,
+          SUM(CASE WHEN is_claimed = TRUE THEN amount ELSE 0 END) as claimed
+        FROM referral_rewards
+        WHERE wallet_address = $1`,
+        [walletAddress]
+      );
+      
+      const availableRewards = parseFloat(rewardsResult.rows[0]?.available || '0');
+      const claimedRewards = parseFloat(rewardsResult.rows[0]?.claimed || '0');
+      
+      // Calculate average house profit from referred users using 20% payout 
+      const avgPayoutResult = await client.query(`
+        WITH all_wallets AS (
+            SELECT DISTINCT wallet_address
+            FROM deposits
+        ),
+        user_house_profit AS (
+            SELECT 
+                aw.wallet_address,
+                COALESCE(SUM(CASE 
+                    WHEN t.type = 'game_bet' THEN t.amount
+                    WHEN t.type = 'game_win' THEN -t.amount
+                    ELSE 0
+                END), 0) AS house_profit_from_user
+            FROM 
+                all_wallets aw
+            LEFT JOIN 
+                transactions t ON aw.wallet_address = t.wallet_address AND t.type IN ('game_bet', 'game_win')
+            GROUP BY 
+                aw.wallet_address
+        )
+        SELECT 
+            AVG(house_profit_from_user * 0.20) AS avg_diluted_referral_payout
+        FROM 
+            user_house_profit;
+      `);
+      
+      // Calculate actual house profit from this user's referrals
+      const referralProfitResult = await client.query(`
+        WITH referred_wallets AS (
+            SELECT referred_wallet 
+            FROM referral_uses 
+            WHERE referrer_wallet = $1
+        ),
+        referred_profits AS (
+            SELECT 
+                rw.referred_wallet,
+                COALESCE(SUM(CASE 
+                    WHEN t.type = 'game_bet' THEN t.amount
+                    WHEN t.type = 'game_win' THEN -t.amount
+                    ELSE 0
+                END), 0) AS house_profit_from_referred
+            FROM 
+                referred_wallets rw
+            LEFT JOIN 
+                transactions t ON rw.referred_wallet = t.wallet_address AND t.type IN ('game_bet', 'game_win')
+            GROUP BY 
+                rw.referred_wallet
+        )
+        SELECT 
+            SUM(house_profit_from_referred) AS total_house_profit,
+            SUM(house_profit_from_referred * 0.20) AS referral_payout_potential
+        FROM 
+            referred_profits;
+      `, [walletAddress]);
+      
+      const avgReferralPayout = parseFloat(avgPayoutResult.rows[0]?.avg_diluted_referral_payout || '0');
+      const totalHouseProfit = parseFloat(referralProfitResult.rows[0]?.total_house_profit || '0');
+      const payoutPotential = parseFloat(referralProfitResult.rows[0]?.referral_payout_potential || '0');
+      
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          referralCode,
+          username: referralUsername,
+          referrals: referralsResult.rows,
+          availableRewards,
+          claimedRewards,
+          totalEarned: availableRewards + claimedRewards,
+          referralStats: {
+            avgReferralPayout,
+            totalHouseProfit,
+            payoutPotential,
+            referralRate: 0.20
+          }
+        }
+      });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Error getting referral info by social:', error);
+    return res.status(500).json({
+      status: 'error',
+      message: `Server error: ${error instanceof Error ? error.message : String(error)}`
+    });
+  }
+});
 
 // Start server
 const PORT = process.env.PORT || 3333;

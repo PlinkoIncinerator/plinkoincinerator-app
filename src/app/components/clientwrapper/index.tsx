@@ -7,6 +7,7 @@ import { DynamicContextProvider, useDynamicContext } from "@dynamic-labs/sdk-rea
 import { SolanaWalletConnectors } from "@dynamic-labs/solana";
 import { Config } from "../../config/solana";
 import { PublicKey } from "@solana/web3.js";
+import { SocialProvider } from "../../context/SocialContext";
 
 
 
@@ -56,9 +57,11 @@ export default function ClientWrapper({
       settings={dynamicConfig}
     >
       <AuthProvider>
-        <WalletHandler>
-          {children}
-        </WalletHandler>
+        <SocialProvider>
+          <WalletHandler>
+            {children}
+          </WalletHandler>
+        </SocialProvider>
       </AuthProvider>
     </DynamicContextProvider>
   );

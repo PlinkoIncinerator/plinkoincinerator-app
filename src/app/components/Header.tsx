@@ -36,6 +36,10 @@ const Header = () => {
             <Link href="/roadmap" className="text-gray-300 hover:text-white transition-colors">
               Roadmap
             </Link>
+            <Link href="/referrals" className="text-gray-300 hover:text-white transition-colors flex items-center">
+              <span>Referrals</span>
+              <span className="ml-1.5 text-xs bg-green-600 text-white px-1.5 py-0.5 rounded-full">Earn</span>
+            </Link>
             <a 
               href="https://t.me/plinkoincinerator" 
               target="_blank" 
@@ -95,6 +99,14 @@ const Header = () => {
               onClick={() => setMobileMenuOpen(false)}
             >
               Roadmap
+            </Link>
+            <Link 
+              href="/referrals" 
+              className="text-gray-300 hover:text-white transition-colors py-2 px-3 rounded-lg hover:bg-gray-800 flex items-center"
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              <span>Referrals</span>
+              <span className="ml-2 text-xs bg-green-600 text-white px-1.5 py-0.5 rounded-full">Earn</span>
             </Link>
             <a 
               href="https://t.me/plinkoincinerator" 

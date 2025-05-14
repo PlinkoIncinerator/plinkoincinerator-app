@@ -48,6 +48,42 @@ interface BuybackRecord {
   status: 'pending' | 'completed' | 'failed';
 }
 
+// New interfaces for the referral system
+interface SocialConnection {
+  id?: number;
+  wallet_address: string;
+  provider: string;
+  provider_id?: string;
+  username: string;
+  display_name?: string;
+  avatar_url?: string;
+  created_at?: Date;
+}
+
+interface ReferralCode {
+  id?: number;
+  wallet_address: string;
+  referral_code: string;
+  username: string;
+  created_at?: Date;
+}
+
+interface ReferralUse {
+  id?: number;
+  referrer_wallet: string;
+  referred_wallet: string;
+  created_at?: Date;
+}
+
+interface ReferralDeposit {
+  id?: number;
+  referral_use_id: number;
+  deposit_id: number;
+  amount: number;
+  referrer_reward: number;
+  created_at?: Date;
+}
+
 /**
  * Create the deposits table if it doesn't exist
  */
@@ -161,6 +197,119 @@ export async function initializeDatabase() {
         WHERE NOT EXISTS (SELECT 1 FROM buyback_accumulator);
       `);
       
+      // Create social_connections table
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS social_connections (
+          id SERIAL PRIMARY KEY,
+          wallet_address TEXT,
+          provider TEXT NOT NULL,
+          provider_id TEXT,
+          username TEXT NOT NULL,
+          display_name TEXT,
+          avatar_url TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      
+      // Create index on wallet_address for faster lookups in social_connections
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_social_connections_wallet_address
+        ON social_connections(wallet_address);
+      `);
+      
+      // Create index on username+provider for uniqueness checks
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_social_connections_username_provider
+        ON social_connections(username, provider);
+      `);
+      
+      // Create referral_codes table
+      await createReferralCodesTable(client);
+      
+      // Create referral_uses table
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS referral_uses (
+          id SERIAL PRIMARY KEY,
+          referrer_wallet TEXT NOT NULL,
+          referred_wallet TEXT NOT NULL UNIQUE,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      
+      // Create index on referrer_wallet for faster lookups in referral_uses
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_referral_uses_referrer
+        ON referral_uses(referrer_wallet);
+      `);
+      
+      // Create index on referred_wallet for uniqueness checks
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_referral_uses_referred
+        ON referral_uses(referred_wallet);
+      `);
+      
+      // Create referral_deposits table
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS referral_deposits (
+          id SERIAL PRIMARY KEY,
+          referral_use_id INTEGER REFERENCES referral_uses(id),
+          deposit_id INTEGER REFERENCES deposits(id),
+          amount DECIMAL(18, 9) NOT NULL,
+          referrer_reward DECIMAL(18, 9) NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      
+      // Create index on referral_use_id for faster lookups
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_referral_deposits_use_id
+        ON referral_deposits(referral_use_id);
+      `);
+      
+      // Create index on deposit_id for uniqueness
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_referral_deposits_deposit_id
+        ON referral_deposits(deposit_id);
+      `);
+      
+      // Create referral_rewards table to track pending and claimed rewards
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS referral_rewards (
+          id SERIAL PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          amount DECIMAL(18, 9) NOT NULL,
+          is_claimed BOOLEAN DEFAULT FALSE,
+          claimed_at TIMESTAMP WITH TIME ZONE,
+          claim_transaction TEXT,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      
+      // Create index on wallet_address for faster lookups in referral_rewards
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_referral_rewards_wallet
+        ON referral_rewards(wallet_address);
+      `);
+
+
+      // plinkoincinerator-db  | 2025-05-14 17:51:20.451 UTC [3399] STATEMENT:  INSERT INTO shared_images (wallet_address, image_url, recovered_sol, created_at) VALUES ($1, $2, $3, NOW())
+      
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS shared_images (
+          id SERIAL PRIMARY KEY,
+          wallet_address TEXT NOT NULL,
+          image_url TEXT NOT NULL,
+          recovered_sol DECIMAL(18, 9) NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+
+      // Create index on wallet_address for faster lookups in shared_images
+      await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_shared_images_wallet_address 
+        ON shared_images(wallet_address);
+      `);
+
       console.log('Database initialized - all tables ready');
     } finally {
       client.release();
@@ -173,6 +322,39 @@ export async function initializeDatabase() {
     console.error('Failed to initialize database:', error);
     throw error;
   }
+}
+
+/**
+ * Create the referral_codes table if it doesn't exist
+ */
+const createReferralCodesTable = async (client: any) => {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS referral_codes (
+      id SERIAL PRIMARY KEY,
+      wallet_address TEXT,
+      referral_code TEXT UNIQUE NOT NULL,
+      username TEXT,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  
+  // Create index on wallet_address for faster lookups in referral_codes
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_referral_codes_wallet_address
+    ON referral_codes(wallet_address);
+  `);
+  
+  // Create index on referral_code for uniqueness checks
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_referral_codes_code
+    ON referral_codes(referral_code);
+  `);
+
+  // Create index on username for lookups
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS idx_referral_codes_username
+    ON referral_codes(username);
+  `);
 }
 
 /**
@@ -781,4 +963,485 @@ export async function getBuybackStats(): Promise<{
     console.error('Failed to get buyback stats:', error);
     throw error;
   }
-} 
+}
+
+/**
+ * Save social connection to database and generate/retrieve referral code
+ */
+export async function saveSocialConnection(socialData: SocialConnection): Promise<{ referralCode: string; username: string }> {
+  try {
+    const client = await pool.connect();
+    try {
+      // Start a transaction
+      await client.query('BEGIN');
+
+      const { wallet_address, provider, provider_id, username, display_name, avatar_url } = socialData;
+      
+      // Check if this social connection already exists
+      const existingResult = await client.query(
+        'SELECT * FROM social_connections WHERE provider = $1 AND username = $2',
+        [provider, username]
+      );
+      
+      let socialConnectionId;
+      let existingWalletAddress = null;
+      
+      if (existingResult.rows.length > 0) {
+        // Get existing connection data
+        const existingConnection = existingResult.rows[0];
+        socialConnectionId = existingConnection.id;
+        existingWalletAddress = existingConnection.wallet_address;
+        
+        // Update existing connection if wallet address is provided
+        if (wallet_address && (!existingWalletAddress || existingWalletAddress !== wallet_address)) {
+          await client.query(
+            'UPDATE social_connections SET wallet_address = $1, display_name = $2, avatar_url = $3 WHERE id = $4',
+            [wallet_address, display_name, avatar_url, existingConnection.id]
+          );
+        } else if (display_name || avatar_url) {
+          // Update display name or avatar if changed
+          await client.query(
+            'UPDATE social_connections SET display_name = $1, avatar_url = $2 WHERE id = $3',
+            [display_name, avatar_url, existingConnection.id]
+          );
+        }
+      } else {
+        // Insert new social connection
+        const result = await client.query(
+          `INSERT INTO social_connections 
+           (wallet_address, provider, provider_id, username, display_name, avatar_url) 
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [wallet_address, provider, provider_id, username, display_name, avatar_url]
+        );
+        
+        socialConnectionId = result.rows[0].id;
+      }
+      
+      // Get or generate referral code
+      let referralCode;
+      
+      // First, check if this social connection already has a referral code linked
+      // Check if user already has a referral code based on social identity first
+      const socialCodeResult = await client.query(
+        `SELECT rc.referral_code 
+         FROM referral_codes rc
+         JOIN social_connections sc ON rc.username = sc.username
+         WHERE sc.provider = $1 AND sc.username = $2`,
+        [provider, username]
+      );
+      
+      if (socialCodeResult.rows.length > 0) {
+        referralCode = socialCodeResult.rows[0].referral_code;
+      }
+      
+      // Then check if the wallet has a referral code (if a wallet is provided)
+      if (!referralCode && wallet_address) {
+        const walletCodeResult = await client.query(
+          'SELECT referral_code FROM referral_codes WHERE wallet_address = $1',
+          [wallet_address]
+        );
+        
+        if (walletCodeResult.rows.length > 0) {
+          referralCode = walletCodeResult.rows[0].referral_code;
+        }
+      }
+      
+      // If no code found, generate a new one based on username
+      if (!referralCode) {
+        // Base the code on the username
+        let baseCode = username.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (baseCode.length > 6) {
+          baseCode = baseCode.substring(0, 6);
+        } else if (baseCode.length < 3) {
+          baseCode = baseCode.padEnd(3, 'X');
+        }
+        
+        // Add some random characters for uniqueness
+        const randomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
+        referralCode = `${baseCode}-${randomChars}`;
+        
+        // Check if this code is already taken, if so, try again with different random chars
+        let isUnique = false;
+        let attempts = 0;
+        const maxAttempts = 5;
+        
+        while (!isUnique && attempts < maxAttempts) {
+          const codeCheckResult = await client.query(
+            'SELECT id FROM referral_codes WHERE referral_code = $1',
+            [referralCode]
+          );
+          
+          if (codeCheckResult.rows.length === 0) {
+            isUnique = true;
+          } else {
+            const newRandomChars = Math.random().toString(36).substring(2, 6).toUpperCase();
+            referralCode = `${baseCode}-${newRandomChars}`;
+            attempts++;
+          }
+        }
+        
+        // Save the referral code
+        await client.query(
+          'INSERT INTO referral_codes (wallet_address, referral_code, username) VALUES ($1, $2, $3)',
+          [wallet_address, referralCode, username]
+        );
+      }
+      
+      // Commit the transaction
+      await client.query('COMMIT');
+      
+      return { referralCode, username };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Failed to save social connection:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get social connections for a wallet
+ */
+export async function getWalletSocialConnections(walletAddress: string): Promise<SocialConnection[]> {
+  try {
+    const client = await pool.connect();
+    try {
+      const result = await client.query(
+        'SELECT * FROM social_connections WHERE wallet_address = $1',
+        [walletAddress]
+      );
+      
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Failed to get wallet social connections:', error);
+    throw error;
+  }
+}
+
+/**
+ * Generate or retrieve a referral code for a wallet
+ */
+export async function getWalletReferralCode(walletAddress: string): Promise<string | null> {
+  try {
+    const client = await pool.connect();
+    try {
+      const result = await client.query(
+        'SELECT referral_code FROM referral_codes WHERE wallet_address = $1',
+        [walletAddress]
+      );
+      
+      return result.rows.length > 0 ? result.rows[0].referral_code : null;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Failed to get wallet referral code:', error);
+    throw error;
+  }
+}
+
+/**
+ * Apply a referral code for a wallet
+ * This is called when a user enters someone else's referral code
+ */
+export async function applyReferralCode(referralCode: string, walletAddress: string): Promise<boolean> {
+  try {
+    const client = await pool.connect();
+    
+    // First, check if the referral code exists
+    const referralResult = await client.query(
+      'SELECT id, wallet_address FROM referral_codes WHERE referral_code = $1',
+      [referralCode]
+    );
+    
+    if (referralResult.rows.length === 0) {
+      console.log(`Referral code ${referralCode} not found`);
+      client.release();
+      return false;
+    }
+    
+    const referralId = referralResult.rows[0].id;
+    const referrerWallet = referralResult.rows[0].wallet_address;
+    
+    // Make sure the user isn't referring themselves
+    if (referrerWallet === walletAddress) {
+      console.log(`User ${walletAddress} attempted to use their own referral code`);
+      client.release();
+      return false;
+    }
+    
+    // Check if this wallet has already been referred
+    const existingReferralResult = await client.query(
+      'SELECT id FROM referral_uses WHERE referred_wallet = $1',
+      [walletAddress]
+    );
+    
+    if (existingReferralResult.rows.length > 0) {
+      console.log(`Wallet ${walletAddress} already has a referrer`);
+      client.release();
+      return false;
+    }
+    
+    // Add the referral use
+    await client.query(
+      'INSERT INTO referral_uses (referrer_wallet, referred_wallet) VALUES ($1, $2)',
+      [referrerWallet, walletAddress]
+    );
+    
+    console.log(`Applied referral code ${referralCode} for wallet ${walletAddress}`);
+    client.release();
+    return true;
+  } catch (error) {
+    console.error('Error applying referral code:', error);
+    return false;
+  }
+}
+
+/**
+ * Get all wallets referred by a specific wallet
+ */
+export async function getWalletReferrals(walletAddress: string): Promise<{ referred_wallet: string; created_at: Date }[]> {
+  try {
+    const client = await pool.connect();
+    try {
+      const result = await client.query(
+        'SELECT referred_wallet, created_at FROM referral_uses WHERE referrer_wallet = $1 ORDER BY created_at DESC',
+        [walletAddress]
+      );
+      
+      return result.rows;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Failed to get wallet referrals:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get the total available and claimed referral rewards for a wallet
+ */
+export async function getWalletReferralRewards(walletAddress: string): Promise<{
+  availableRewards: number;
+  claimedRewards: number;
+}> {
+  try {
+    const client = await pool.connect();
+    try {
+      const result = await client.query(
+        `SELECT 
+          SUM(CASE WHEN is_claimed = FALSE THEN amount ELSE 0 END) as available,
+          SUM(CASE WHEN is_claimed = TRUE THEN amount ELSE 0 END) as claimed
+        FROM referral_rewards
+        WHERE wallet_address = $1`,
+        [walletAddress]
+      );
+      
+      return {
+        availableRewards: parseFloat(result.rows[0]?.available || '0'),
+        claimedRewards: parseFloat(result.rows[0]?.claimed || '0')
+      };
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Failed to get wallet referral rewards:', error);
+    throw error;
+  }
+}
+
+/**
+ * Claim referral rewards for a wallet
+ */
+export async function claimReferralRewards(walletAddress: string, amount: number): Promise<boolean> {
+  try {
+    const client = await pool.connect();
+    try {
+      // Start transaction
+      await client.query('BEGIN');
+      
+      // Check available balance
+      const balanceResult = await client.query(
+        `SELECT SUM(amount) as available
+        FROM referral_rewards
+        WHERE wallet_address = $1 AND is_claimed = FALSE`,
+        [walletAddress]
+      );
+      
+      const availableBalance = parseFloat(balanceResult.rows[0]?.available || '0');
+      
+      if (availableBalance < amount) {
+        await client.query('ROLLBACK');
+        return false; // Insufficient balance
+      }
+      
+      // Get rewards to claim, starting with oldest first
+      const rewardsResult = await client.query(
+        `SELECT id, amount
+        FROM referral_rewards
+        WHERE wallet_address = $1 AND is_claimed = FALSE
+        ORDER BY created_at ASC`,
+        [walletAddress]
+      );
+      
+      // Mark rewards as claimed
+      let remainingAmount = amount;
+      for (const reward of rewardsResult.rows) {
+        if (remainingAmount <= 0) break;
+        
+        const rewardId = reward.id;
+        const rewardAmount = parseFloat(reward.amount);
+        
+        if (rewardAmount <= remainingAmount) {
+          // Claim the full reward
+          await client.query(
+            `UPDATE referral_rewards
+            SET is_claimed = TRUE, claimed_at = NOW()
+            WHERE id = $1`,
+            [rewardId]
+          );
+          
+          remainingAmount -= rewardAmount;
+        } else {
+          // Split the reward - claim part and leave the rest
+          await client.query(
+            `UPDATE referral_rewards
+            SET amount = $1
+            WHERE id = $2`,
+            [rewardAmount - remainingAmount, rewardId]
+          );
+          
+          // Create a new record for the claimed portion
+          await client.query(
+            `INSERT INTO referral_rewards
+            (wallet_address, amount, is_claimed, claimed_at)
+            VALUES ($1, $2, TRUE, NOW())`,
+            [walletAddress, remainingAmount]
+          );
+          
+          remainingAmount = 0;
+        }
+      }
+      
+      // Commit the transaction
+      await client.query('COMMIT');
+      
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Failed to claim referral rewards:', error);
+    throw error;
+  }
+}
+
+/**
+ * Add a referral deposit
+ * Called when a referred user makes a deposit
+ */
+export async function addReferralDeposit(depositId: number, amount: number): Promise<boolean> {
+  try {
+    const client = await pool.connect();
+    
+    // Get the deposit details
+    const depositResult = await client.query(
+      'SELECT wallet_address FROM deposits WHERE id = $1',
+      [depositId]
+    );
+    
+    if (depositResult.rows.length === 0) {
+      console.log(`Deposit ${depositId} not found`);
+      client.release();
+      return false;
+    }
+    
+    const userWallet = depositResult.rows[0].wallet_address;
+    
+    // Check if this user was referred
+    const referralResult = await client.query(
+      `SELECT ru.id as referral_use_id, rc.wallet_address as referrer_wallet 
+       FROM referral_uses ru 
+       JOIN referral_codes rc ON ru.referrer_wallet = rc.wallet_address 
+       WHERE ru.referred_wallet = $1`,
+      [userWallet]
+    );
+    
+    if (referralResult.rows.length === 0) {
+      console.log(`User ${userWallet} was not referred by anyone`);
+      client.release();
+      return false;
+    }
+    
+    const referralUseId = referralResult.rows[0].referral_use_id;
+    const referrerWallet = referralResult.rows[0].referrer_wallet;
+    const referralRate = 0.2; // Default to 20%
+    
+    // Calculate the referral reward (20% of the house profit)
+    const houseProfit = amount * 0.021; // 2.1% house fee
+    const referralReward = houseProfit * referralRate;
+    
+    // Add the referral deposit record
+    await client.query(
+      `INSERT INTO referral_deposits
+       (referral_use_id, deposit_id, amount, referrer_reward)
+       VALUES ($1, $2, $3, $4)`,
+      [referralUseId, depositId, amount, referralReward]
+    );
+    
+    // Add the reward to referral_rewards for the referrer
+    await client.query(
+      `INSERT INTO referral_rewards
+       (wallet_address, amount)
+       VALUES ($1, $2)`,
+      [referrerWallet, referralReward]
+    );
+    
+    console.log(`Added referral reward of ${referralReward} SOL for referrer ${referrerWallet} from deposit ${depositId}`);
+    client.release();
+    return true;
+  } catch (error) {
+    console.error('Error adding referral reward:', error);
+    return false;
+  }
+}
+
+/**
+ * Get referral information for a wallet
+ */
+export async function getWalletReferralInfo(walletAddress: string): Promise<{
+  referralCode: string | null;
+  referrals: { referred_wallet: string; created_at: Date }[];
+  availableRewards: number;
+  claimedRewards: number;
+  totalEarned: number;
+}> {
+  try {
+    const code = await getWalletReferralCode(walletAddress);
+    const referrals = await getWalletReferrals(walletAddress);
+    const rewards = await getWalletReferralRewards(walletAddress);
+    
+    return {
+      referralCode: code,
+      referrals,
+      availableRewards: rewards.availableRewards,
+      claimedRewards: rewards.claimedRewards,
+      totalEarned: rewards.availableRewards + rewards.claimedRewards
+    };
+  } catch (error) {
+    console.error('Failed to get wallet referral info:', error);
+    throw error;
+  }
+}
