@@ -103,6 +103,62 @@ export async function addSwappedValueColumn(): Promise<void> {
   }
 }
 
+/**
+ * Migration: Add referral_code_id column to referral_uses table
+ */
+export async function addReferralCodeIdColumn(): Promise<void> {
+  const migrationName = 'add_referral_code_id_column';
+  
+  // Skip if already applied
+  if (await hasMigrationBeenApplied(migrationName)) {
+    console.log(`Migration ${migrationName} already applied, skipping`);
+    return;
+  }
+  
+  const client = await pool.connect();
+  try {
+    // Start transaction
+    await client.query('BEGIN');
+    
+    console.log('Applying migration: add_referral_code_id_column');
+    
+    // Add referral_code_id column if it doesn't exist
+    await client.query(`
+      ALTER TABLE referral_uses 
+      ADD COLUMN IF NOT EXISTS referral_code_id INTEGER REFERENCES referral_codes(id);
+    `);
+    
+    // Update existing records to populate referral_code_id from the referrer_wallet
+    await client.query(`
+      UPDATE referral_uses ru
+      SET referral_code_id = rc.id
+      FROM referral_codes rc
+      WHERE ru.referrer_wallet = rc.wallet_address
+      AND ru.referral_code_id IS NULL;
+    `);
+    
+    // Create index on the new column
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_referral_uses_referral_code_id
+      ON referral_uses(referral_code_id);
+    `);
+    
+    // Record migration as applied
+    await markMigrationAsApplied(migrationName);
+    
+    // Commit transaction
+    await client.query('COMMIT');
+    
+    console.log('Migration applied successfully: add_referral_code_id_column');
+  } catch (error) {
+    // Rollback on error
+    await client.query('ROLLBACK');
+    console.error('Migration failed:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 /**
  * Run all migrations in sequence
@@ -116,6 +172,7 @@ export async function runMigrations(): Promise<void> {
     
     // Run individual migrations
     await addSwappedValueColumn();
+    await addReferralCodeIdColumn();
     
     console.log('All migrations completed successfully');
   } catch (error) {

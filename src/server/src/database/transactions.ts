@@ -1183,11 +1183,11 @@ export async function applyReferralCode(referralCode: string, walletAddress: str
       return false;
     }
     
-    const referralId = referralResult.rows[0].id;
+    const referralCodeId = referralResult.rows[0].id;
     const referrerWallet = referralResult.rows[0].wallet_address;
     
-    // Make sure the user isn't referring themselves
-    if (referrerWallet === walletAddress) {
+    // Make sure the user isn't referring themselves (if the referral code has a wallet)
+    if (referrerWallet && referrerWallet === walletAddress) {
       console.log(`User ${walletAddress} attempted to use their own referral code`);
       client.release();
       return false;
@@ -1205,13 +1205,13 @@ export async function applyReferralCode(referralCode: string, walletAddress: str
       return false;
     }
     
-    // Add the referral use
+    // Add the referral use with the referral_code_id
     await client.query(
-      'INSERT INTO referral_uses (referrer_wallet, referred_wallet) VALUES ($1, $2)',
-      [referrerWallet, walletAddress]
+      'INSERT INTO referral_uses (referrer_wallet, referred_wallet, referral_code_id) VALUES ($1, $2, $3)',
+      [referrerWallet, walletAddress, referralCodeId]
     );
     
-    console.log(`Applied referral code ${referralCode} for wallet ${walletAddress}`);
+    console.log(`Applied referral code ${referralCode} for wallet ${walletAddress} with code ID ${referralCodeId}`);
     client.release();
     return true;
   } catch (error) {
@@ -1385,11 +1385,11 @@ export async function addReferralDeposit(depositId: number, amount: number): Pro
     
     const userWallet = depositResult.rows[0].wallet_address;
     
-    // Check if this user was referred
+    // Check if this user was referred - now join through referral_code_id
     const referralResult = await client.query(
-      `SELECT ru.id as referral_use_id, rc.wallet_address as referrer_wallet 
+      `SELECT ru.id as referral_use_id, rc.wallet_address as referrer_wallet, rc.id as referral_code_id 
        FROM referral_uses ru 
-       JOIN referral_codes rc ON ru.referrer_wallet = rc.wallet_address 
+       JOIN referral_codes rc ON ru.referral_code_id = rc.id 
        WHERE ru.referred_wallet = $1`,
       [userWallet]
     );
@@ -1402,6 +1402,7 @@ export async function addReferralDeposit(depositId: number, amount: number): Pro
     
     const referralUseId = referralResult.rows[0].referral_use_id;
     const referrerWallet = referralResult.rows[0].referrer_wallet;
+    const referralCodeId = referralResult.rows[0].referral_code_id;
     const referralRate = 0.2; // Default to 20%
     
     // Calculate the referral reward (20% of the house profit)
@@ -1416,19 +1417,26 @@ export async function addReferralDeposit(depositId: number, amount: number): Pro
       [referralUseId, depositId, amount, referralReward]
     );
     
-    // Add the reward to referral_rewards for the referrer
-    await client.query(
-      `INSERT INTO referral_rewards
-       (wallet_address, amount)
-       VALUES ($1, $2)`,
-      [referrerWallet, referralReward]
-    );
+    // If the referrer has a wallet address, add the reward to referral_rewards
+    if (referrerWallet) {
+      await client.query(
+        `INSERT INTO referral_rewards
+         (wallet_address, amount)
+         VALUES ($1, $2)`,
+        [referrerWallet, referralReward]
+      );
+      
+      console.log(`Added referral reward of ${referralReward} SOL for referrer ${referrerWallet}`);
+    } else {
+      console.log(`Referral code ${referralCodeId} has no wallet address associated, reward pending`);
+      // You could store these rewards in a separate table for later assignment
+      // when the referrer connects their wallet
+    }
     
-    console.log(`Added referral reward of ${referralReward} SOL for referrer ${referrerWallet} from deposit ${depositId}`);
     client.release();
     return true;
   } catch (error) {
-    console.error('Error adding referral reward:', error);
+    console.error('Error adding referral deposit:', error);
     return false;
   }
 }
