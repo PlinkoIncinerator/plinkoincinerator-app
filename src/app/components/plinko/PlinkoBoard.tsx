@@ -87,19 +87,19 @@ function getRandomStartPositionForBin(
       { y: 0, x: 565 },
       { y: 0, x: 592 },
     ],
-      13: [
+    12: [
       { y: 0, x: 504 },
       { y: 0, x: 522 },
       { y: 0, x: 527 },
     ],
-    14: [
+    13: [
       { y: 0, x: 531 },
       { y: 0, x: 585 },
       { y: 0, x: 623 },
     ],
-    15: [{ y: 0, x: 614 }],
-    16: [{ y: 0, x: 709 }],
-    17: [
+    14: [{ y: 0, x: 614 }],
+    15: [{ y: 0, x: 709 }],
+    16: [
       { y: 0, x: 648 },
       { y: 0, x: 652 },
     ],
@@ -324,7 +324,7 @@ export default function PlinkoBoard({
     const ballSize = 6;
     const ballCategory = 0x0002;
     const ballColors = ["#22ff88", "#ff6622", "#2288ff", "#ffdd22", "#ff22dd"];
-    const startPos = getRandomStartPositionForBin(resultBin);
+    const startPos = getRandomStartPositionForBin(12);
 
     const ball = Matter.Bodies.circle(
       startPos?.x || 500,
