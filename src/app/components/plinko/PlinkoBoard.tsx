@@ -324,7 +324,7 @@ export default function PlinkoBoard({
     const ballSize = 6;
     const ballCategory = 0x0002;
     const ballColors = ["#22ff88", "#ff6622", "#2288ff", "#ffdd22", "#ff22dd"];
-    const startPos = getRandomStartPositionForBin(12);
+    const startPos = getRandomStartPositionForBin(resultBin);
 
     const ball = Matter.Bodies.circle(
       startPos?.x || 500,
